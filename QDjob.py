@@ -882,6 +882,15 @@ class QidianClient:
                 logger.error("游戏中心任务未找到")
                 return {'status': 'failed', 'code': 10086}
             if type_gamejob == 1:
+                if 'qdgame://' in game_url:
+                    logger.info("游戏中心任务URL为跳转链接类型，转为https链接")
+                    res_get_game_url = self.session.get(game_url,allow_redirects=False)
+                    game_url = res_get_game_url.headers.get('Location')
+                    logger.info(f"游戏中心任务URL转换结果: {game_url}")
+                    if not game_url:
+                        logger.error("游戏中心任务URL转换失败")
+                        return {'status': 'failed', 'code': 10086}
+                    
                 match = re.search(r'partnerid=(\d+)', game_url)
                 if not match:
                     logger.error("游戏中心任务URL错误")
@@ -889,6 +898,16 @@ class QidianClient:
                 game_id = 201796
                 partnerid = match.group(1)
             elif type_gamejob == 2:
+                # 如果qdgame://在game_url中，则使用正则匹配
+                if 'qdgame://' in game_url:
+                    logger.info("游戏中心任务URL为跳转链接类型，转为https链接")
+                    res_get_game_url = self.session.get(game_url,allow_redirects=False)
+                    game_url = res_get_game_url.headers.get('Location')
+                    logger.info(f"游戏中心任务URL转换结果: {game_url}")
+                    if not game_url:
+                        logger.error("游戏中心任务URL转换失败")
+                        return {'status': 'failed', 'code': 10086}
+
                 match = re.search(r'/game/(\d+).*?partnerid=(\d+)', game_url)
                 if not match:
                     logger.error("游戏中心任务URL错误")

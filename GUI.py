@@ -55,21 +55,25 @@ class ConfigEditor:
         self.root.title("QDjob配置编辑器")
 
         # 设置窗口图标和初始尺寸
-        self.root.geometry("1000x800")
+        # 根据屏幕分辨率设置窗口大小
+        self.resolution_set = self.get_resolution_settings()
 
-        # 设置统一字体
-        self.default_font = ("微软雅黑", 12)
+        main_width = self.resolution_set.get("main_width",1000)
+        main_height = self.resolution_set.get("main_height",800)
+        font_family = self.resolution_set.get("font_family", "微软雅黑")
+        font_size_main = self.resolution_set.get("font_size_main",12)
+        font_size_small = self.resolution_set.get("font_size_small",10)
+
+        self.root.geometry(f"{main_width}x{main_height}")
+
+        self.default_font = (font_family, font_size_main)
+        self.label_font = (font_family, 20)
+        self.small_font = (font_family, font_size_small)
+
         self.root.option_add("*Font", self.default_font)
         self.root.option_add("*Menu.font", self.default_font)  
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
-        
-        # 启用DPI感知（Windows系统）
-        try:
-            from ctypes import windll
-            windll.shcore.SetProcessDpiAwareness(1)
-        except:
-            pass
 
         # 初始化主题样式
         self.init_styles()
@@ -82,6 +86,131 @@ class ConfigEditor:
         
         # 创建主界面
         self.create_ui()
+
+    def get_resolution_settings(self):
+        """
+        根据屏幕分辨率配置UI，自动调整窗口大小和字体大小
+        按照5个档位（480p, 720p, 1080p, 2k, 4k）设置
+        """
+        # 获取屏幕宽度和高度
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # 计算对角线像素数（综合考虑横向和纵向分辨率）
+        diagonal_pixels = (screen_width ** 2 + screen_height ** 2) ** 0.5
+        
+        # 确定分辨率档位
+        if diagonal_pixels <= 900:  # ~480p
+            resolution_level = "480p"
+        elif diagonal_pixels <= 1500:  # ~720p
+            resolution_level = "720p"
+        elif diagonal_pixels <= 2200:  # ~1080p
+            resolution_level = "1080p"
+        elif diagonal_pixels <= 3000:  # ~2k
+            resolution_level = "2k"
+        else:  # 4k及以上
+            resolution_level = "4k"
+        
+        # 根据分辨率档位设置UI参数（以2k屏幕配置为基准）
+        if resolution_level == "480p":
+            main_width = 380
+            main_height = 360
+
+            userpage_width = 380
+            userpage_height = 330
+
+            loginpage_width = 380
+            loginpage_height = 300
+
+            pushpage_width = 250
+            pushpage_height = 160
+
+            font_size_main = 7
+            font_size_small = 6
+        elif resolution_level == "720p":
+            main_width = 580
+            main_height = 550
+
+            userpage_width = 580
+            userpage_height = 500
+
+            loginpage_width = 580
+            loginpage_height = 470
+
+            pushpage_width = 320
+            pushpage_height = 220
+
+            font_size_main = 8
+            font_size_small = 7
+        elif resolution_level == "1080p":
+            main_width = 800
+            main_height = 770
+
+            userpage_width = 800
+            userpage_height = 700
+
+            loginpage_width = 800
+            loginpage_height = 650
+
+            pushpage_width = 500
+            pushpage_height = 320
+
+            font_size_main = 11
+            font_size_small = 9
+        elif resolution_level == "2k":
+            main_width = 1000
+            main_height = 900
+
+            userpage_width = 1000
+            userpage_height = 850
+
+            loginpage_width = 1000
+            loginpage_height = 800
+
+            pushpage_width = 550
+            pushpage_height = 340
+
+            font_size_main = 12
+            font_size_small = 10
+        else:  # 4k
+            main_width = 1200
+            main_height = 1000
+
+            userpage_width = 1200
+            userpage_height = 960
+
+            loginpage_width = 120
+            loginpage_height = 900
+
+            pushpage_width = 600
+            pushpage_height = 300
+
+            font_size_main = 14
+            font_size_small = 12
+        
+        # 根据系统设置字体格式
+        if sys_run == 1:  # Windows系统
+            font_family = "微软雅黑"
+        elif sys_run == 2:  # Linux系统
+            font_family = "微软雅黑"
+        else:  # macOS系统
+            font_family = "Helvetica"
+
+        resolution_set = {
+            "main_width": main_width,
+            "main_height": main_height,
+            "userpage_width": userpage_width,
+            "userpage_height": userpage_height,
+            "loginpage_width": loginpage_width,
+            "loginpage_height": loginpage_height,
+            "pushpage_width": pushpage_width,
+            "pushpage_height": pushpage_height,
+            "font_family": font_family,
+            "font_size_main": font_size_main,
+            "font_size_small": font_size_small
+        }
+        
+        return resolution_set
 
     def init_styles(self):
         """初始化主题样式"""
@@ -309,26 +438,26 @@ class ConfigEditor:
         author_frame.pack(padx=10, pady=5, fill="x", expand=False)
 
         # 使用grid布局排列信息
-        ttk.Label(author_frame, text="作者: JaniQuiz      项目: QDjob", font=("微软雅黑", 10)).grid(
+        ttk.Label(author_frame, text="作者: JaniQuiz      项目: QDjob", font=self.small_font).grid(
             row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Label(author_frame, text="本项目为个人项目，仅供学习交流使用，请勿用于非法用途，如有侵权，请联系删除。", font=("微软雅黑", 10)).grid(
+        ttk.Label(author_frame, text="本项目为个人项目，仅供学习交流使用，请勿用于非法用途，如有侵权，请联系删除。", font=self.small_font).grid(
             row=1, column=0, sticky="w", padx=5, pady=2)
         
         # 添加声明文本
-        ttk.Label(author_frame, text="图形验证码自动处理功能需要获取tokenid，您可以在我的咸鱼上购买", font=("微软雅黑", 10), ).grid(
+        ttk.Label(author_frame, text="图形验证码自动处理功能需要获取tokenid，您可以在我的咸鱼上购买", font=self.small_font, ).grid(
             row=2, column=0, sticky="w", padx=5, pady=2)
 
         # 创建超链接标签
         github_link = ttk.Label(author_frame, text="GitHub: https://github.com/JaniQuiz/QDjob",
-                            foreground="blue", cursor="hand2", font=("微软雅黑", 10))
+                            foreground="blue", cursor="hand2", font=self.small_font)
         github_link.grid(row=3, column=0, sticky="w", padx=5, pady=2)
         
         telegram_link = ttk.Label(author_frame, text="Telegram: https://t.me/+6xMW_7YK0o1jMDE1",
-                            foreground="blue", cursor="hand2", font=("微软雅黑", 10))
+                            foreground="blue", cursor="hand2", font=self.small_font)
         telegram_link.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
         xianyu_link = ttk.Label(author_frame, text="咸鱼: https://www.goofish.com/item?id=1000811249803",
-                            foreground="blue", cursor="hand2", font=("微软雅黑", 10))
+                            foreground="blue", cursor="hand2", font=self.small_font)
         xianyu_link.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 
         # 绑定超链接点击事件
@@ -621,11 +750,17 @@ class ConfigEditor:
         if not is_valid:
             messagebox.showerror("错误", message)
             return
-        
+
+        loginpage_width = self.resolution_set.get("loginpage_width")
+        loginpage_height = self.resolution_set.get("loginpage_height")
+
         dialog = tk.Toplevel(parent)
         dialog.title("手机验证码登录")
-        dialog.geometry("800x650")
-
+        if loginpage_width and loginpage_height:
+            dialog.geometry(f"{loginpage_width}x{loginpage_height}")
+        else:
+            dialog.geometry("800x650")
+        # dialog.geometry("800x650")
         # 关键设置：确保对话框是模态的
         dialog.transient(parent)  # 设置为临时窗口（关联到父窗口）
         dialog.grab_set()         # 捕获所有事件，使对话框成为模态
@@ -958,9 +1093,16 @@ class ConfigEditor:
             messagebox.showerror("错误", f"login_phone_{username}.json内容为空\n本功能用于便捷更新过期cookies，需要先进行手机验证码成功登录后才能使用")
             return
         
+        loginpage_width = self.resolution_set.get("loginpage_width")
+        loginpage_height = self.resolution_set.get("loginpage_height")
+        
         dialog = tk.Toplevel(parent)
         dialog.title("账号密码登录")
-        dialog.geometry("800x650")
+        if loginpage_width and loginpage_height:
+            dialog.geometry(f"{loginpage_width}x{loginpage_height}")
+        else:
+            dialog.geometry("800x650")
+        # dialog.geometry("800x650")
 
         # 关键模态设置
         dialog.transient(parent)
@@ -1281,9 +1423,16 @@ class ConfigEditor:
             messagebox.showerror("错误", message)
             return
         
+        loginpage_width = self.resolution_set.get("loginpage_width")
+        loginpage_height = self.resolution_set.get("loginpage_height")
+        
         dialog = tk.Toplevel(parent)
         dialog.title("手动输入Cookies")
-        dialog.geometry("800x500")
+        if loginpage_width and loginpage_height:
+            dialog.geometry(f"{loginpage_width}x{loginpage_height}")
+        else:
+            dialog.geometry("800x500")
+        # dialog.geometry("800x500")
 
         # 关键模态设置
         dialog.transient(parent)
@@ -1395,10 +1544,18 @@ class ConfigEditor:
         if len(self.users_data) >= self.__class__.MAX_USERS:
             messagebox.showerror("错误", f"最多只能添加{self.__class__.MAX_USERS}个用户")
             return
+                
+        userpage_width = self.resolution_set.get("userpage_width")
+        userpage_height = self.resolution_set.get("userpage_height")
         
         dialog = tk.Toplevel(self.root)
         dialog.title("添加用户")
-        dialog.geometry("800x780")
+        # dialog.geometry("800x780")
+        if userpage_width and userpage_height:
+            dialog.geometry(f"{userpage_width}x{userpage_height}")
+        else:
+            dialog.geometry("800x780")
+
         dialog.transient(self.root)  # 新增：设置为临时窗口
         dialog.grab_set()  # 新增：模态对话框
         
@@ -1480,9 +1637,16 @@ class ConfigEditor:
 
         def add_push_service():
             """添加推送服务配置"""
+            pushpage_width = self.resolution_set.get("pushpage_width")
+            pushpage_height = self.resolution_set.get("pushpage_height")
+
             push_dialog = tk.Toplevel(dialog)
             push_dialog.title("添加推送服务")
-            push_dialog.geometry("400x250")
+            if pushpage_width and pushpage_height:
+                push_dialog.geometry(f"{pushpage_width}x{pushpage_height}")
+            else:
+                push_dialog.geometry("400x250")
+            # push_dialog.geometry("400x250")
             
             push_form = ttk.Frame(push_dialog, padding="15 10 15 10")
             push_form.pack(fill="both", expand=True)
@@ -1656,11 +1820,18 @@ class ConfigEditor:
                 
             index = listbox.index(selected[0])
             service = push_services[index]
+
+            pushpage_width = self.resolution_set.get("pushpage_width")
+            pushpage_height = self.resolution_set.get("pushpage_height")
             
             # 创建新的配置对话框进行编辑
             push_dialog = tk.Toplevel(dialog)
             push_dialog.title(f"编辑推送服务 - {service['type']}")
-            push_dialog.geometry("400x250")
+            if pushpage_width and pushpage_height:
+                push_dialog.geometry(f"{pushpage_width}x{pushpage_height}")
+            else:
+                push_dialog.geometry("400x250")
+            # push_dialog.geometry("400x250")
             
             push_form = ttk.Frame(push_dialog, padding="15 10 15 10")
             push_form.pack(fill="both", expand=True)
@@ -1880,13 +2051,21 @@ class ConfigEditor:
         if not selected:
             messagebox.showwarning("警告", "请先选择一个用户")
             return
+        
+        userpage_width = self.resolution_set.get("userpage_width")
+        userpage_height = self.resolution_set.get("userpage_height")
 
         index = self.user_list.index(selected[0])
         user = self.users_data[index]
 
         dialog = tk.Toplevel(self.root)
         dialog.title(f"编辑用户 - {user['username']}")
-        dialog.geometry("800x780")
+
+        if userpage_width and userpage_height:
+            dialog.geometry(f"{userpage_width}x{userpage_height}")
+        else:
+            dialog.geometry("800x780")
+
         dialog.transient(self.root)  # 新增：设置为临时窗口
         dialog.grab_set()  # 新增：模态对话框
 
@@ -1983,9 +2162,16 @@ class ConfigEditor:
 
         def add_push_service():
             """添加推送服务配置"""
+            pushpage_width = self.resolution_set.get("pushpage_width")
+            pushpage_height = self.resolution_set.get("pushpage_height")
+
             push_dialog = tk.Toplevel(dialog)
             push_dialog.title("添加推送服务")
-            push_dialog.geometry("400x250")
+            if pushpage_width and pushpage_height:
+                push_dialog.geometry(f"{pushpage_width}x{pushpage_height}")
+            else:
+                push_dialog.geometry("400x250")
+            # geometry("400x250")
 
             push_form = ttk.Frame(push_dialog, padding="15 10 15 10")
             push_form.pack(fill="both", expand=True)
@@ -2138,10 +2324,17 @@ class ConfigEditor:
             index = listbox.index(selected[0])
             service = push_services[index]
 
+            pushpage_width = self.resolution_set.get("pushpage_width")
+            pushpage_height = self.resolution_set.get("pushpage_height")
+
             # 创建新的配置对话框进行编辑
             push_dialog = tk.Toplevel(dialog)
             push_dialog.title(f"编辑推送服务 - {service['type']}")
-            push_dialog.geometry("400x250")
+            if pushpage_width and pushpage_height:
+                push_dialog.geometry(f"{pushpage_width}x{pushpage_height}")
+            else:
+                push_dialog.geometry("400x250")
+            # push_dialog.geometry("400x250")
 
             push_form = ttk.Frame(push_dialog, padding="15 10 15 10")
             push_form.pack(fill="both", expand=True)
