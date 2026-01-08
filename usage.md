@@ -1,6 +1,6 @@
 ## 使用方法
 由于本项目核心加密参数不公开，因此请下载release中的exe文件，并按照以下步骤使用。  
-1. **下载release中的`QDjob.exe`和`QDjob_editor.exe`文件，放到同一个目录下**
+1. **下载[release](https://github.com/JaniQuiz/QDjob/releases)中的`QDjob.exe`和`QDjob_editor.exe`文件，放到同一个目录下**
 
 2. **运行`QDjob_editor.exe`，软件会自动创建配置`config.json`文件，按照下面说明配置用户，目前最大支持3个账号**  
    配置文件说明：
@@ -67,4 +67,5 @@
    * `windows`: 执行`QDjob.exe`或者在`QDjob_editor.exe`中点击执行任务
    * `linux`:
      * 分别打开两个程序的属性设置，设置`QDjob`和`QDjob_editor`程序可执行。
+
      * 执行`QDjob`或者在`QDjob_editor`中点击执行任务。
