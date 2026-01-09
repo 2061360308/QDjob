@@ -884,6 +884,8 @@ class QidianClient:
             if type_gamejob == 1:
                 if 'qdgame://' in game_url:
                     logger.info("游戏中心任务URL为跳转链接类型，转为https链接")
+                    # 将qdgame://替换为https://
+                    game_url = game_url.replace('qdgame://', 'https://')
                     res_get_game_url = self.session.get(game_url,allow_redirects=False)
                     game_url = res_get_game_url.headers.get('Location')
                     logger.info(f"游戏中心任务URL转换结果: {game_url}")
