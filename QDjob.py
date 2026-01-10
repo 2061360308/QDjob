@@ -948,7 +948,7 @@ class QidianClient:
             trackid = generate_trackid()
             cookies['PHESSID'] = PHESSID
             cookies['trackid'] = trackid
-            def heartbeat(game_id: int, full_time: int=690):
+            def heartbeat(game_id, full_time: int=690):
                 run_time = 0
                 url_heartbeat = "https://lygame.qidian.com/home/log/heartbeat"
                 params_heartbeat = {
