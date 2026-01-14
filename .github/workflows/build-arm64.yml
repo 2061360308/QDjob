@@ -2,9 +2,8 @@ name: Build ARM64 Executable
 
 on:
   push:
-    tags:
-      - 'v*.*.*'  # 当推送以 v 开头的标签时触发（例如 v1.0.0）
-  workflow_dispatch:  # 也允许手动触发
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-arm64:
@@ -49,7 +48,7 @@ jobs:
           pip install --no-cache-dir -r /app/temp/src/requirements.txt
           pip install --no-cache-dir pyinstaller pillow cython
           
-          # 开始编译 Cython 模块
+          # 编译 Cython 模块
           echo '开始编译 Cython 模块...' && \
           mkdir -p /app/src && \
           cp -r /app/temp/src/* /app/src/ && \
@@ -57,45 +56,35 @@ jobs:
           cythonize -3 -j 6 -i QDjob.py && \
           cythonize -3 -j 6 -i enctrypt_qidian.py && \
           
-          # 复制编译后的文件到应用目录
+          # 复制编译后的文件
           cp *.so /app/ && \
           cp push.py /app/ && \
           cp main.py /app/ && \
           cp Captcha.py /app/ && \
           cp logger.py /app/ && \
           
-          # 创建必要的目录
-          mkdir -p /app/dist && \
-          
           # 执行 PyInstaller 打包
+          mkdir -p /app/dist && \
           cd /app && \
           pyinstaller --distpath /app/dist --workpath /app/build --clean --noconfirm /app/temp/build.spec && \
           
           # 复制结果到输出目录
           cp /app/dist/QDjob /output/ && \
           
-          # 清理临时资源
+          # 清理临时资源（关键：确保不留下源码）
           echo '清理临时资源...' && \
-          rm -rf /app/src/*
+          rm -rf /app/src/* /app/temp
         "
     
     - name: Verify ARM64 binary
       run: |
         if ! file dist/QDjob | grep -q "ARM aarch64"; then
-          echo "Error: Binary is not ARM64 architecture"
+          echo "错误: 生成的二进制文件不是ARM64架构"
           exit 1
         fi
     
-    - name: Upload artifact
+    - name: 上传构建产物
       uses: actions/upload-artifact@v3
       with:
         name: QDjob-arm64
         path: dist/QDjob
-    
-    - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/QDjob
-        name: Release ${{ github.ref_name }}
-        body: "ARM64 架构的 QDjob 可执行文件"
