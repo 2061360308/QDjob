@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>自动验证码示例</title>
+  <!-- 验证码程序依赖(必须)。请勿修改以下程序依赖 -->
+  <script src="https://turing.captcha.qcloud.com/TJCaptcha.js"></script>
+</head>
+<body>
+  <button id="CaptchaId" type="button" style="display:none;">验证</button>
+  
+<script>
+  function callback(res) {
+    console.log('callback:', res);
+    
+    // 通过pywebview API将结果发送回Python
+    if (window.pywebview && window.pywebview.api) {
+      window.pywebview.api.receiveResult(JSON.stringify(res));
+    }
+    
+    // 原有逻辑保持不变
+    if (res.ret === 0) {
+      var str = '【randstr】->【' + res.randstr + '】      【ticket】->【' + res.ticket + '】';
+      var ipt = document.createElement('input');
+      ipt.value = str;
+      document.body.appendChild(ipt);
+      ipt.select();
+      document.execCommand("Copy");
+      document.body.removeChild(ipt);
+      alert('1. 返回结果（randstr、ticket）已复制到剪切板。2. 打开浏览器控制台查看完整结果。');
+    }
+  }
+
+  function loadErrorCallback() {
+    var appid = '1600000770';
+    var ticket = 'trerror_1001_' + appid + '_' + Math.floor(new Date().getTime() / 1000);
+    callback({
+      ret: 0,
+      randstr: '@' + Math.random().toString(36).substr(2),
+      ticket: ticket,
+      errorCode: 1001,
+      errorMessage: 'jsload_error'
+    });
+  }
+
+  // 封装验证码触发逻辑
+  function startCaptcha() {
+    try {
+      var captcha = new TencentCaptcha('1600000770', callback, {
+        userLanguage: 'zh-cn',
+        showFn: (ret) => {
+          const { duration, sid } = ret;
+        },
+      });
+      captcha.show();
+    } catch (error) {
+      loadErrorCallback();
+    }
+  }
+
+  // 页面加载完成后自动触发验证码
+  window.onload = function () {
+    startCaptcha();
+    
+    // 保留按钮点击功能（可选）
+    document.getElementById('CaptchaId').onclick = startCaptcha;
+  }
+</script>
+</body>
+</html>

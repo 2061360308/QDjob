@@ -3,36 +3,27 @@
 1. **下载[release](https://github.com/JaniQuiz/QDjob/releases)中的`QDjob.exe`和`QDjob_editor.exe`文件，放到同一个目录下**
 
 2. **运行`QDjob_editor.exe`，软件会自动创建配置`config.json`文件，按照下面说明配置用户，目前最大支持3个账号**  
-   配置文件说明：
-   - `log_level`: 日志级别，可选值：`DEBUG/INFO/ERROR`，默认`INFO`
+   - 日志等级，日志保留天数，失败重试次数等保持默认即可
+   - 添加/编辑用户：
+     - 用户名(必填)
+     - 用户类型：只能选择captcha
+     - tokenid(非必填)：用于自动处理图形验证码，通过[我的网站](https://shop.janiquiz.dpdns.org)或者[我的咸鱼主页](https://m.tb.cn/h.7YjEhOz?tk=2VRJfsPwg93)获取
+     - 用户登录(必填)：
+       - 手机验证码登录：输入手机号获取验证码登录，成功后会保存设备信息用于后续登录(虽然能登录成功，但是执行任务会提示风险，无法使用)
+       - 账号密码登录：输入账号密码登录，必须在成功手机验证码登录后拥有设备信息后才能使用
+       - **手动输入cookies**：手动输入抓包或其他手段获取的cookies(目前唯一可行方案)，详细使用方式见下方说明
+     - 任务配置(必填)：需要执行的任务，默认全选
+     - 推送服务(非必填)：执行完毕后将任务执行情况推送到指定的服务中。
    
-   - `log_retention_days`: 日志保留天数，默认7天
-   
-   - `retry_attempts`: 失败重试次数，默认3次
-   
-   - `default_user_agent`: 默认用户代理，请以自己抓包获取的数据为准，其中末尾的7.9.384和1466代表起点版本
-     
-        ```bash
-        Mozilla/5.0 (Linux; Android 13; PDEM10 Build/TP1A.220905.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/109.0.5414.86 MQQBrowser/6.2 TBS/047601 Mobile Safari/537.36 QDJSSDK/1.0  QDNightStyle_1  QDReaderAndroid/7.9.384/1466/1000032/OPPO/QDShowNativeLoading
-        ```
-        
-   - `ibex`：必填，该参数可能是验证码相关参数，不填会导致出验证码，已修改脚本为不填无法运行。需要抓包获取一次，此后理论上永久有效。
-   
-              **获取方式**：抓包获取。推荐抓包接口(福利中心页面)：`https://h5.if.qidian.com/argus/api/v2/video/adv/mainPage`  
-                            如果上面接口没有ibex参数，请手动完成一次激励任务，抓包：`https://h5.if.qidian.com/argus/api/v1/video/adv/finishWatch`
-   
-   - `users`: 用户列表，每个用户包含以下字段
-     
-     - `username`: 用户名
-     - `cookies_file`: 用户`cookies`文件名，默认为`cookies/{username}.json`
-     - `user_agent`: 为每个用户单独配置UA，不填则默认使用`default_user_agent`
-     - `tasks`: 任务列表，选中表示执行，不选中则不执行
-     - `push_services`: 推送服务列表，按需配置，如果不需要，请直接删除。其中飞书推送时，如果你配置了签名验证，请选中`是否有签名验证`，并填写`秘钥`。
-   
-3. **每个用户都需要配置`cookies`文件，也就是你的账号，目前仅支持抓包获取，后续会添加登录功能。**  
-   即便后面添加了登录功能，但还是更推荐你使用抓包获取`cookies`，可以有效防止账号遇到验证码。  
-   起点并没有对抓包有什么限制，使用常用的抓包软件就行，这里放上[小黄鸟(过检测版)](https://wwqe.lanzouo.com/iImXX2y6ysje) 密码:`3bt2`  
-   请将你抓包获取到的`cookies`放在`cookies`配置框，软件提供了字符串格式`cookies`的转换功能，参数`qid`、`QDInfo`必须包含，其他字段尽量包含，具体那些字段不能缺我也没测。最终格式如下：
+3. **cookies说明**  
+   一般通过抓包来获取cookies，起点并没有对抓包有什么限制，使用常用的抓包软件就行，这里放上[小黄鸟(过检测版)](https://wwqe.lanzouo.com/iImXX2y6ysje) 密码:`3bt2`  
+   需要抓取字段包括：
+    - User-Agent(必填)：接口的`User-Agent`字段，必须包含`QDReaderAndroid/7.9.384/1466/1000032/OPPO/QDShowNativeLoading`字段，格式类似于
+    ```bash
+    Mozilla/5.0 (Linux; Android 13; PDEM10 Build/TP1A.220905.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/109.0.5414.86 MQQBrowser/6.2 TBS/047601 Mobile Safari/537.36 QDJSSDK/1.0  QDNightStyle_1  QDReaderAndroid/7.9.384/1466/1000032/OPPO/QDShowNativeLoading
+    ```
+    - ibex(必填)： 记录设备安全信息，是一段base64编码的数据，较长。
+    - cookies(必填)：记录账号登录信息，格式应当为json类型，下方示例中的11项为必须包含字段。本软件提供了字符串格式`cookies`的转换功能，可以将形如`a=b;c=d;...`的字符串转换成json类型，如果抓取到的格式并非json类型，需要进行转换后再进行保存。
    ```json
    {
         "appId": "",
@@ -44,7 +35,6 @@
         "qid": "",
         "ywkey": "",
         "ywguid": "",
-        "uuid": "",
         "cmfuToken": "",
         "QDInfo": ""
    }

@@ -10,7 +10,6 @@
    - 账号密码登录
    - 自动签到（每日签到）
    - 激励视频任务 10点+10点+20点=40点章节卡
-   - 额外激励视频任务 (似乎现在起点取消了这个任务，但接口没删)
    - 额外章节卡任务 (额外3次小视频) 10点章节卡
    - 每日抽奖任务
    - 游戏中心任务
@@ -21,10 +20,11 @@
    - 飞书群聊机器人(`webhookurl`, `secret`)，创建一个群，然后就可以为群内添加机器人
    - Server酱(`SCKEY`)
    - 企业微信推送
+   - pushplus推送
 
 4. **智能重试机制**  
    - 自动重试失败任务，默认最大重试3次（可配置重试次数）
-   - 有一定概率遇到验证码，此时会停止执行并推送消息。后续会把找验证码识别的模型做进去，实现完全自动化
+   - 有一定概率遇到图形验证码，如果拥有tokenid，则会自动处理图形验证码，否则停止执行。
 
 5. **完整日志系统**  
    - 支持按天分割日志
@@ -33,14 +33,28 @@
 
 ## 项目架构
 ```bash
-├── cookies/           # 用户cookies存储目录
-├── main.py            # 程序入口
-├── enctrypt_qidian.py # 核心参数加密模块(不公开，以免项目寄掉)
-├── QDjob.py           # 核心逻辑模块
-├── push.py            # 推送服务基类及实现
-├── logger.py          # 日志管理模块
-├── Captcha.py         # 验证码处理接口
-└── config.json        # 用户配置文件
+📦 项目根目录
+├── 📄 config.json               # 用户配置文件
+├── 📄 README.md                 # 项目说明
+├── 📄 usage.md                  # 使用方法说明
+├── 📂 cookies                   # 用户cookies储存文件夹
+│   └── 📄 username.json         # 用户cookies文件
+├── 📂 QDjob                     # QDjob程序
+│   ├── 🐍 Captcha.py            # 图形验证码处理模块
+│   ├── 🐍 logger.py             # 日志模块
+│   ├── 🐍 main.py               # 程序入口
+│   ├── 🐍 push.py               # 推送服务模块
+│   ├── 🐍 enctrypt_qidian.py    # 核心加密模块(不公开，避免项目寄掉)
+│   └── 🐍 QDjob.py              # QDjob主体模块
+└── 📂 QDjob_editor              # QDjob_editor程序
+    ├── 🐍 captcha_verifier.py   # 图形验证码处理模块
+    ├── 🐍 GUI.py                # 图形界面主体模块
+    ├── 🐍 logger.py             # 日志模块
+    ├── 🐍 enctrypt_qidian.py    # 核心加密模块(不公开，避免项目寄掉)
+    ├── 🐍 Login.py              # 登录协议模块(不公开，避免被针对)
+    ├── 📄 login_data.json       # 模拟设备信息数据(不公开，避免被针对)
+    └── 📂 template              
+        └── 📄 template.html     # 图形验证码渲染html
 ```
 
 ## 使用方法
