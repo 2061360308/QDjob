@@ -7,9 +7,9 @@ import random
 import re
 from typing import Dict, List, Optional, Any, Callable
 from enctrypt_qidian import getQDSign, getSDKSign, getborgus, getuserid_from_QDInfo, getQDInfo_byQDInfo, getibex_byibex
-from QDjob.push import PushService, FeiShu, ServerChan, QiweiPush
-from QDjob.logger import LoggerManager
-from QDjob.logger import DEFAULT_LOG_RETENTION
+from push import PushService, FeiShu, ServerChan, QiweiPush
+from logger import LoggerManager
+from logger import DEFAULT_LOG_RETENTION
 
 
 # 配置常量
@@ -1084,6 +1084,73 @@ class QidianClient:
         except Exception as e:
             logger.error(f"抽奖任务异常: {e}")
             return {'status': 'error', 'error': str(e)}
+        
+    def weekly_exchange_card(self) -> dict:
+        '''每周自动兑换章节卡'''
+        try:
+            url_exchange_page = "https://h5.if.qidian.com/argus/api/v3/checkin/checkinexchangepage"
+            result = self._make_sdk_request(url_exchange_page, method='GET')
+            if result.get('Result') != 0 and result.get('Result') != "0":
+                logger.error("获取章节卡兑换页面失败")
+                return {'status': 'failed', 'code': 10086}
+            if result.get('Data') == None:
+                logger.error("获取章节卡兑换页面数据为空")
+                return {'status': 'failed', 'code': 10086}
+            remain_points = result["Data"].get("Balance")
+            logger.info(f"当前余额: {remain_points}")
+            goods_list = result["Data"].get("Goods", [])
+            
+            # 验证数据有效性
+            if remain_points is None or remain_points <= 0:
+                logger.error(f"无效的余额: {remain_points}")
+                return {'status': 'stop', 'reason': '余额不足或无效'}
+            
+            if not goods_list:
+                logger.error("章节卡列表为空")
+                return {'status': 'stop', 'reason': '章节卡列表为空'}
+            
+            # 选择可兑换的章节卡（价格不超过余额的最贵章节卡）
+            selected_good = None
+            for good in goods_list:
+                # 确保章节卡有有效的价格
+                if "GoodsScore" not in good:
+                    continue
+                    
+                price = good["GoodsScore"]
+                # 选择价格不超过余额且最贵的章节卡
+                if price <= remain_points and (selected_good is None or price > selected_good["GoodsScore"]):
+                    selected_good = good
+            
+            # 检查是否找到可兑换章节卡
+            if selected_good is None:
+                logger.info(f"没有可兑换的章节卡（当前余额: {remain_points}）")
+                return {'status': 'stop', 'reason': '无符合条件的章节卡'}
+            
+            goods_id = selected_good["GoodsId"]
+            goods_score = selected_good["GoodsScore"]
+            chapter_card_count = selected_good["ChapterCardCount"]
+            
+            logger.info(f"选择章节卡: GoodsId：{goods_id}, 价格：{goods_score}, 章节卡点数：{chapter_card_count}")
+            
+            url_exchange = "https://h5.if.qidian.com/argus/api/v3/checkin/exchangegoods"
+            data = {
+                'goodId': goods_id,
+            }
+            exchange_result = self._make_sdk_request(url_exchange, data=data, method='POST')
+            if exchange_result.get('Result') == -220000:
+                logger.error("章节卡未到兑换时间")
+                return {'status': 'stop', 'reason': '章节卡未到兑换时间'}
+            elif exchange_result.get('Result') != 0 and exchange_result.get('Result') != "0":
+                logger.error("章节卡兑换失败")
+                return {'status': 'failed', 'code': 10086}
+            else:
+                logger.info(f"章节卡兑换成功，获得章节卡点数：{chapter_card_count}")
+                return {'status': 'success'}
+
+
+        except Exception as e:
+            logger.error(f"每周自动兑换章节卡任务异常: {e}")
+            return {'status': 'error', 'error': str(e)}
     
     # 其他核心功能方法...
 
@@ -1131,10 +1198,10 @@ class TaskProcessor:
                         logger.warning(f"任务[{task_name}]因验证码中断")
                         self.task_results[task_name] = result
                         break
-                    # elif status == 'failed':
-                    #     logger.error(f"任务[{task_name}]执行失败: {result.get('reason', '未知原因')}")
-                    #     self.task_results[task_name] = result
-                    #     break
+                    elif status == 'stop':
+                        logger.error(f"任务[{task_name}]执行失败: {result.get('reason', '强行停止')}")
+                        self.task_results[task_name] = result
+                        break
                     else:
                         if attempt < self.retry_attempts:
                             logger.warning(f"任务[{task_name}]第{attempt}次执行失败，正在重试...")
@@ -1170,6 +1237,11 @@ class TaskProcessor:
             # ('其他任务', self.other_task_func),
             # 添加其他任务...
         ]
+        # 获取当前星期，如果为周日，则添加每周自动兑换章节卡任务
+        if time.strftime('%w') == '0':
+            tasks.append(('每周自动兑换章节卡', self.client.weekly_exchange_card))
+        else:
+            logger.info("非周日，不执行每周自动兑换章节卡任务")
         
         for task_name, task_func in tasks:
             self.run_task(task_name, task_func)
