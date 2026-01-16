@@ -63,7 +63,7 @@
 
      * 执行`QDjob`或者在`QDjob_editor`中点击执行任务。
 
-7. **额外说明**
+## 额外说明
   * 关于arm64格式：
      * 可以使用在`安卓端termux`或者`树莓派`等arm64架构的linux系统来执行本程序 
      * 由于无法打包图形界面，所以请使用其他端的`QDjob_editor`配置用户完毕后，复制`cookies`文件夹以及配置文件`config.json`到对应的arm64 linux系统下执行程序。
