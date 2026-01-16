@@ -16,7 +16,10 @@
      - 推送服务(非必填)：执行完毕后将任务执行情况推送到指定的服务中。
    
 3. **cookies说明**  
-   一般通过抓包来获取cookies，起点并没有对抓包有什么限制，使用常用的抓包软件就行，这里放上[小黄鸟(过检测版)](https://wwqe.lanzouo.com/iImXX2y6ysje) 密码:`3bt2`  
+   一般通过抓包来获取cookies，起点并没有对抓包有什么限制，使用常用的抓包软件就行，这里放上[小黄鸟(过检测版)](https://wwqe.lanzouo.com/iImXX2y6ysje) 密码:`3bt2` 
+   建议抓包接口：
+    - 福利中心：`https://h5.if.qidian.com/argus/api/v2/video/adv/mainPage` 
+    - 观看激励视频任务：`https://h5.if.qidian.com/argus/api/v1/video/adv/finishWatch`
    需要抓取字段包括：
     - User-Agent(必填)：接口的`User-Agent`字段，必须包含`QDReaderAndroid/7.9.384/1466/1000032/OPPO/QDShowNativeLoading`字段，格式类似于
     ```bash
@@ -59,3 +62,8 @@
      * 分别打开两个程序的属性设置，设置`QDjob`和`QDjob_editor`程序可执行。
 
      * 执行`QDjob`或者在`QDjob_editor`中点击执行任务。
+
+7. **额外说明**
+  * 关于arm64格式：
+     * 可以使用在`安卓端termux`或者`树莓派`等arm64架构的linux系统来执行本程序 
+     * 由于无法打包图形界面，所以请使用其他端的`QDjob_editor`配置用户完毕后，复制`cookies`文件夹以及配置文件`config.json`到对应的arm64 linux系统下执行程序。
