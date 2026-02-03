@@ -7,10 +7,11 @@ import random
 import re
 from typing import Dict, List, Optional, Any, Callable
 from enctrypt_qidian import getQDSign, getSDKSign, getborgus, getuserid_from_QDInfo, getQDInfo_byQDInfo, getibex_byibex
-from push import PushService, FeiShu, ServerChan, QiweiPush
+from push import *
 from logger import LoggerManager
 from logger import DEFAULT_LOG_RETENTION
 
+__version__ = 'v1.2.6'
 
 # 配置常量
 CONFIG_FILE = 'config.json'
@@ -58,6 +59,11 @@ class ConfigManager:
     
     def _init_users(self) -> List[UserConfig]:
         """初始化用户配置"""
+        # 添加用户数量限制检查
+        if len(self.config['users']) > 3:
+            logger.error("❌ 用户数量超过最大限制3个，请调整配置文件")
+            raise ValueError("用户数量超过最大限制3个")
+        
         users = []
         for user_data in self.config['users']:
             if not self._validate_user_config(user_data):
@@ -89,6 +95,8 @@ class ConfigManager:
                     push_service = ServerChan(**config_without_type)
                 elif push_type == 'qiwei':
                     push_service = QiweiPush(**config_without_type)
+                elif push_type == 'pushplus':
+                    push_service = PushPlus(**config_without_type)
                 else:
                     logger.warning(f"[推送配置] 用户[{user_data['username']}] 未知的推送类型: {push_type}")
                     continue
@@ -129,6 +137,11 @@ class ConfigManager:
 
     def _validate_config(self):
         """全局配置校验"""
+        # 最大用户数量限制说明
+        if 'users' in self.config:
+            if len(self.config['users']) > 3:
+                logger.warning("⚠️ 注意：用户数量超过3个时将被拒绝加载")
+                
         # 校验日志级别
         if 'log_level' in self.config:
             valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
@@ -206,7 +219,7 @@ class ConfigManager:
             logger.error(f"用户[{user_data['username']}] 推送服务配置必须为列表类型")
             return False
 
-        valid_push_types = ['feishu', 'serverchan', 'qiwei']
+        valid_push_types = ['feishu', 'serverchan', 'qiwei', 'pushplus']
         for push_config in push_services:
             if not isinstance(push_config, dict):
                 logger.warning(f"用户[{user_data['username']}] 推送配置项不是字典类型")
@@ -248,6 +261,14 @@ class ConfigManager:
                     return False
                 if not isinstance(push_config.get('webhook_url', ''), str):
                     logger.warning(f"[配置错误] 用户[{user_data['username']}] Qiwei推送 webhook_url 必须为字符串类型")
+                    return False
+            
+            elif push_type == 'pushplus':
+                if not push_config.get('token'):
+                    logger.warning(f"[配置错误] 用户[{user_data['username']}] PushPlus推送缺少必要字段: token")
+                    return False
+                if not isinstance(push_config.get('token', ''), str):
+                    logger.warning(f"[配置错误] 用户[{user_data['username']}] PushPlus推送 token 必须为字符串类型")
                     return False
 
         return True
@@ -1281,6 +1302,8 @@ class MainApp:
         global logger
         # 获取基础日志系统（已初始化）
         logger = LoggerManager().logger
+
+        logger.info(f"QDjob程序启动，当前版本为: {__version__}")
 
         if not self.pre_check():
             logger.error("预检查失败，程序终止")
