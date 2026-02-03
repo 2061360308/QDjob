@@ -3,6 +3,7 @@ import os
 import logging.handlers
 
 LOG_DIR = 'logs'
+LOG_NAME = 'login'
 DEFAULT_LOG_RETENTION = 7
 
 class LoggerManager:
@@ -20,7 +21,7 @@ class LoggerManager:
             os.makedirs(LOG_DIR)
         
         file_handler = logging.handlers.TimedRotatingFileHandler(
-            os.path.join(LOG_DIR, 'login.log'),
+            os.path.join(LOG_DIR, LOG_NAME+'.log'),
             when='midnight',
             backupCount=DEFAULT_LOG_RETENTION,
             encoding='utf-8'
@@ -31,7 +32,7 @@ class LoggerManager:
     
     def setup_basic_logger(self):
         """初始化基础日志系统（用于 pre_check）"""
-        self._logger = logging.getLogger('Qidian')
+        self._logger = logging.getLogger(LOG_NAME)
         self._logger.setLevel('INFO')
 
         # 清除已有 handlers
@@ -70,7 +71,7 @@ class LoggerManager:
             os.makedirs(LOG_DIR)
 
         file_handler = logging.handlers.TimedRotatingFileHandler(
-            os.path.join(LOG_DIR, 'login.log'),
+            os.path.join(LOG_DIR, LOG_NAME+'.log'),
             when='midnight',
             backupCount=retention_days,
             encoding='utf-8'

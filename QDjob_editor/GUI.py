@@ -4,11 +4,14 @@ import os, re
 import json
 import time
 import webbrowser, threading
-from Login import QDLogin_PhoneCode, QDLogin_Password, get_random_phone, check_login_status, check_login_risk, check_user_status
+from Login import QDLogin_PhoneCode, QDLogin_Password, get_random_phone
+from utils import check_login_status, check_login_risk, check_user_status, readtime_report
 
 import sys
 import os
 import platform
+
+__version__ = 'v1.2.6'
 
 system = platform.system()
 if system == "Windows":
@@ -115,76 +118,66 @@ class ConfigEditor:
         if resolution_level == "480p":
             main_width = 380
             main_height = 360
-
             userpage_width = 380
             userpage_height = 330
-
             loginpage_width = 380
             loginpage_height = 300
-
             pushpage_width = 250
             pushpage_height = 260
-
+            readtimepage_width = 380  # Added
+            readtimepage_height = 400 # Added
             font_size_main = 7
             font_size_small = 6
         elif resolution_level == "720p":
             main_width = 580
             main_height = 550
-
             userpage_width = 580
             userpage_height = 500
-
             loginpage_width = 580
             loginpage_height = 470
-
             pushpage_width = 320
             pushpage_height = 370
-
+            readtimepage_width = 580  # Added
+            readtimepage_height = 550 # Added
             font_size_main = 8
             font_size_small = 7
         elif resolution_level == "1080p":
             main_width = 800
             main_height = 770
-
             userpage_width = 800
             userpage_height = 700
-
             loginpage_width = 800
             loginpage_height = 660
-
             pushpage_width = 500
             pushpage_height = 550
-
+            readtimepage_width = 800  # Added
+            readtimepage_height = 700 # Added
             font_size_main = 11
             font_size_small = 9
         elif resolution_level == "2k":
             main_width = 1000
             main_height = 900
-
             userpage_width = 1000
             userpage_height = 850
-
             loginpage_width = 1000
             loginpage_height = 800
-
             pushpage_width = 550
             pushpage_height = 630
-
+            readtimepage_width = 1000 # Added
+            readtimepage_height = 800 # Added
             font_size_main = 12
             font_size_small = 10
         else:  # 4k
             main_width = 1200
             main_height = 1000
-
             userpage_width = 1200
             userpage_height = 960
-
             loginpage_width = 120
             loginpage_height = 900
-
             pushpage_width = 600
             pushpage_height = 700
-
+            readtimepage_width = 1200 # Added
+            readtimepage_height = 900 # Added
             font_size_main = 14
             font_size_small = 12
         
@@ -205,6 +198,8 @@ class ConfigEditor:
             "loginpage_height": loginpage_height,
             "pushpage_width": pushpage_width,
             "pushpage_height": pushpage_height,
+            "readtimepage_width": readtimepage_width, # Added
+            "readtimepage_height": readtimepage_height, # Added
             "font_family": font_family,
             "font_size_main": font_size_main,
             "font_size_small": font_size_small
@@ -405,6 +400,9 @@ class ConfigEditor:
         
         ttk.Button(btn_frame, text="检测风险状态", style="Accent.TButton",
             command=self.check_login_risk_for_selected_user).pack(fill="x", pady=2)
+        
+        ttk.Button(btn_frame, text="阅读时长上报", style="Accent.TButton",
+            command=self.readtime_report_for_selected_user).pack(fill="x", pady=2)
 
         # 初始化用户列表显示
         self.refresh_user_list()
@@ -438,7 +436,7 @@ class ConfigEditor:
         author_frame.pack(padx=10, pady=5, fill="x", expand=False)
 
         # 使用grid布局排列信息
-        ttk.Label(author_frame, text="作者: JaniQuiz      项目: QDjob", font=self.small_font).grid(
+        ttk.Label(author_frame, text=f"作者: JaniQuiz      项目: QDjob      版本: {__version__}", font=self.small_font).grid(
             row=0, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(author_frame, text="本项目为个人项目，仅供学习交流使用，请勿用于非法用途，如有侵权，请联系删除。", font=self.small_font).grid(
             row=1, column=0, sticky="w", padx=5, pady=2)
@@ -668,6 +666,282 @@ class ConfigEditor:
         except Exception as e:
             messagebox.showerror("错误", f"检测风险状态时出错: {str(e)}", icon='error')
 
+    def readtime_report_for_selected_user(self):
+        """对选中用户进行阅读时长上报"""
+        from datetime import datetime, timedelta
+        import random  # 引入random模块
+
+        # --- 1. 预检查逻辑 ---
+        selected = self.user_list.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个用户")
+            return
+        
+        index = self.user_list.index(selected[0])
+        user = self.users_data[index]
+        username = user["username"]
+        
+        # 检查cookies
+        cookies_file = user.get("cookies_file", "")
+        if not cookies_file or not os.path.exists(cookies_file):
+            messagebox.showwarning("警告", f"用户 '{username}' 的cookies未配置")
+            return
+        
+        try:
+            with open(cookies_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            if not content.strip():
+                messagebox.showwarning("警告", f"用户 '{username}' 的cookies文件为空")
+                return
+            cookies = json.loads(content)
+        except Exception as e:
+            messagebox.showerror("错误", f"无法读取cookies: {str(e)}")
+            return
+        
+        # 检查User Agent
+        user_agent = user.get("user_agent", "")
+        if not user_agent:
+            user_agent = self.config_data["default_user_agent"]
+        
+        # 检查ibex
+        ibex = user.get("ibex", "")
+        if not ibex:
+            messagebox.showwarning("警告", f"用户 '{username}' 的ibex未配置")
+            return
+
+        # --- 2. 构建UI界面 ---
+        readtimepage_width = self.resolution_set.get("readtimepage_width")
+        readtimepage_height = self.resolution_set.get("readtimepage_height")
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"阅读时长上报 - {username}")
+        if readtimepage_width and readtimepage_height:
+            dialog.geometry(f"{readtimepage_width}x{readtimepage_height}")
+        else:
+            dialog.geometry("800x600")
+
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 主容器
+        main_frame = ttk.Frame(dialog, padding="15")
+        main_frame.pack(fill="both", expand=True)
+
+        # 区域1：添加数据输入区
+        input_frame = ttk.LabelFrame(main_frame, text="添加阅读记录", padding="10")
+        input_frame.pack(fill="x", pady=(0, 10))
+
+        # Grid布局配置
+        input_frame.grid_columnconfigure(1, weight=1)
+        input_frame.grid_columnconfigure(3, weight=1)
+
+        # Book ID
+        ttk.Label(input_frame, text="Book ID:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
+        book_id_var = tk.StringVar()
+        ttk.Entry(input_frame, textvariable=book_id_var, style="Custom.TEntry").grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+
+        # Chapter ID
+        ttk.Label(input_frame, text="Chapter ID:").grid(row=0, column=2, sticky="e", padx=5, pady=5)
+        chapter_id_var = tk.StringVar()
+        ttk.Entry(input_frame, textvariable=chapter_id_var, style="Custom.TEntry").grid(row=0, column=3, sticky="ew", padx=5, pady=5)
+
+        # 阅读时长 (分钟)
+        ttk.Label(input_frame, text="阅读时长(分钟):").grid(row=1, column=0, sticky="e", padx=5, pady=5)
+        duration_var = tk.StringVar(value="10") # 默认10分钟
+        ttk.Entry(input_frame, textvariable=duration_var, style="Custom.TEntry").grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+
+        # 结束时间 (字符串，可编辑)
+        ttk.Label(input_frame, text="结束时间:").grid(row=1, column=2, sticky="e", padx=5, pady=5)
+        # 默认结束时间 = 当前时间戳 - 3000ms
+        default_end_ts = int(time.time() * 1000) - 3000
+        default_end_str = datetime.fromtimestamp(default_end_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+        
+        end_time_var = tk.StringVar(value=default_end_str)
+        end_time_entry = ttk.Entry(input_frame, textvariable=end_time_var, style="Custom.TEntry")
+        end_time_entry.grid(row=1, column=3, sticky="ew", padx=5, pady=5)
+
+        # 开始时间 (显示用，自动计算)
+        ttk.Label(input_frame, text="开始时间(预估):").grid(row=2, column=0, sticky="e", padx=5, pady=5)
+        start_time_label = ttk.Label(input_frame, text="--", foreground="blue")
+        start_time_label.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        
+        def update_time_display(*args):
+            """仅用于UI显示预估时间，不涉及最终随机化逻辑"""
+            try:
+                minutes = float(duration_var.get())
+                end_str = end_time_var.get()
+                dt_obj = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
+                end_ts = dt_obj.timestamp()
+                
+                # 计算预估开始时间
+                start_ts = end_ts - (minutes * 60)
+                start_dt = datetime.fromtimestamp(start_ts)
+                
+                start_time_label.config(text=start_dt.strftime('%Y-%m-%d %H:%M:%S'))
+                return True
+            except ValueError:
+                start_time_label.config(text="时间格式错误")
+                return False
+
+        # 绑定事件
+        duration_var.trace_add("write", update_time_display)
+        end_time_entry.bind("<FocusOut>", lambda e: update_time_display())
+        
+        # 初始化显示
+        update_time_display()
+
+        # 添加按钮逻辑
+        def add_to_list():
+            if not update_time_display():
+                messagebox.showerror("错误", "请检查时长和时间格式 (YYYY-MM-DD HH:MM:SS)")
+                return
+            
+            bid = book_id_var.get().strip()
+            cid = chapter_id_var.get().strip()
+            if not bid or not cid:
+                messagebox.showerror("错误", "Book ID 和 Chapter ID 不能为空")
+                return
+            
+            try:
+                # 1. 获取基础数据
+                base_minutes = float(duration_var.get())
+                base_end_str = end_time_var.get()
+                base_end_dt = datetime.strptime(base_end_str, '%Y-%m-%d %H:%M:%S')
+                base_end_ts = int(base_end_dt.timestamp() * 1000) # 毫秒
+                base_duration_ms = int(base_minutes * 60 * 1000)
+                
+                # 2. 生成随机抖动 (避免被检测)
+                # 结束时间随机偏移 ±999ms
+                end_jitter = random.randint(-999, 999)
+                real_end_ts = base_end_ts + end_jitter
+                
+                # 开始时间在原定间隔基础上也增加随机偏移 ±999ms
+                # 这样计算出的实际时长也会有轻微浮动，不再是精确的整分钟
+                start_jitter = random.randint(-999, 999)
+                # 基础开始时间 = 实际结束时间 - 基础时长
+                # 实际开始时间 = 基础开始时间 + 抖动
+                real_start_ts = (real_end_ts - base_duration_ms) + start_jitter
+                
+                # 3. 重新计算符合规则的实际时长 (endTime - startTime = readTime)
+                real_read_ms = real_end_ts - real_start_ts
+                
+                # 格式化显示时间 (包含毫秒信息以便确认)
+                display_start = datetime.fromtimestamp(real_start_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                display_end = datetime.fromtimestamp(real_end_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                
+                # 4. 添加到列表
+                tree.insert("", "end", values=(
+                    bid, 
+                    cid, 
+                    f"{real_read_ms/60000:.2f}", # 显示实际分钟数
+                    display_start, 
+                    display_end,
+                    f"{real_read_ms}|{real_start_ts}|{real_end_ts}" # metadata
+                ))
+                
+                # 5. 自动修改下一次配置
+                # 下一次结束时间 = 本次开始时间 - 随机间隔(1000ms~3000ms)
+                gap_ms = random.randint(1000, 3000)
+                next_end_ts = real_start_ts - gap_ms
+                next_end_str = datetime.fromtimestamp(next_end_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 更新UI控件
+                end_time_var.set(next_end_str)
+                chapter_id_var.set("") # 清空章节ID
+                
+                # 刷新预估时间显示
+                update_time_display()
+                
+            except Exception as e:
+                messagebox.showerror("错误", f"生成记录失败: {str(e)}")
+
+        ttk.Button(input_frame, text="添加记录", style="Accent.TButton", command=add_to_list).grid(row=2, column=3, sticky="e", padx=5, pady=5)
+
+        # 区域2：列表显示区
+        list_frame = ttk.LabelFrame(main_frame, text="待上报列表", padding="5")
+        list_frame.pack(fill="both", expand=True, pady=5)
+
+        columns = ("bookid", "chapterid", "duration", "starttime", "endtime", "metadata")
+        tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="extended")
+        
+        tree.heading("bookid", text="书籍ID")
+        tree.heading("chapterid", text="章节ID")
+        tree.heading("duration", text="时长(分)")
+        tree.heading("starttime", text="开始时间")
+        tree.heading("endtime", text="结束时间")
+        
+        tree.column("bookid", width=100)
+        tree.column("chapterid", width=100)
+        tree.column("duration", width=60)
+        tree.column("starttime", width=150) # 加宽以显示毫秒
+        tree.column("endtime", width=150)
+        tree.column("metadata", width=0, stretch=False) # 隐藏列
+        
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 删除选中项
+        def delete_selected():
+            for item in tree.selection():
+                tree.delete(item)
+        
+        ttk.Button(list_frame, text="删除选中行", style="Accent.TButton", command=delete_selected).pack(side="bottom", anchor="w", pady=5, padx=5)
+
+        # 区域3：底部操作区
+        action_frame = ttk.Frame(main_frame)
+        action_frame.pack(fill="x", pady=10)
+
+        def submit_report():
+            items = tree.get_children()
+            if not items:
+                messagebox.showwarning("提示", "列表为空，请先添加记录")
+                return
+            
+            chapter_info_list = []
+            
+            try:
+                for item in items:
+                    values = tree.item(item, "values")
+                    bid = values[0]
+                    cid = values[1]
+                    metadata = values[5].split("|")
+                    read_ms = int(metadata[0])
+                    start_ts = int(metadata[1])
+                    end_ts = int(metadata[2])
+                    
+                    read_data = {
+                        "readTime": read_ms,
+                        "bookId": int(bid),
+                        "chapterId": int(cid),
+                        "startTime": start_ts,
+                        "endTime": end_ts,
+                        "bookType": 1,
+                        "chapterVip": 1,
+                        "scrollMode": 1,
+                        "unlockStatus": -100,
+                        "unlockReason": -100,
+                        "sp": "",
+                    }
+                    chapter_info_list.append(read_data)
+                
+                # 调用后端接口
+                success = readtime_report(user_agent, cookies, ibex, chapter_info_list)
+                
+                if success:
+                    messagebox.showinfo("成功", f"成功上报 {len(chapter_info_list)} 条阅读记录")
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("失败", "上报失败，请检查日志或网络")
+                    
+            except Exception as e:
+                messagebox.showerror("错误", f"构建数据或上报过程中出错: {str(e)}")
+
+        ttk.Button(action_frame, text="确认上报", style="Accent.TButton", command=submit_report).pack(side="right", padx=10)
+        ttk.Button(action_frame, text="取消", style="Accent.TButton", command=dialog.destroy).pack(side="right", padx=10)
+        
     def validate_username(self, username):
         """验证用户名是否符合格式要求"""
         if not username:
@@ -1516,6 +1790,10 @@ class ConfigEditor:
                 except json.JSONDecodeError as e:
                     messagebox.showerror("错误", f"JSON格式错误：{str(e)}")
                     return
+            
+            # 如果cookies文件夹不存在，则创建
+            if not os.path.exists("cookies"):
+                os.makedirs("cookies")
             
             # 保存cookies到cookies/用户名.json
             cookies_file = f"cookies/{username}.json"
