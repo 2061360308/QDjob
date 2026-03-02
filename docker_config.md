@@ -120,7 +120,7 @@ docker run -d \
 #### 方式二：Docker Compose 部署
 
 1. 进入 Docker 管理器 → 容器编排 → 编排模板 → 添加  
-![docker](picture/bt_docker_filetree.webp)
+![docker](picture/bt_docker_muban.webp)
 2. 填写模板名称（如QDjob），内容如下：
 
 ```yaml
