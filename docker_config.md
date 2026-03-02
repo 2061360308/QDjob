@@ -161,14 +161,6 @@ services:
    - 容器需要有效的账号配置才能执行任务
    - 这就是为什么必须使用 `QDjob_editor` 生成配置
 
-3. **正确配置流程**：
-   ```mermaid
-   graph LR
-   A[下载QDjob_editor.exe] --> B[添加账号并测试]
-   B --> C[生成config.json和cookies]
-   C --> D[部署到Docker映射目录]
-   D --> E[容器读取配置执行任务]
-   ```
 
 ### 定时任务配置
 
