@@ -188,17 +188,19 @@ services:
 ### 常见问题
 
 1. **Q：容器启动后任务不执行？**
-   - A：请确认已通过 `QDjob_editor` 生成有效配置，并上传至正确目录
+  - A：请确认已通过 `QDjob_editor` 生成有效配置，并上传至正确目录
 
 2. **Q：如何查看容器日志？**
-   ```bash
-   docker logs qdjob
-   ```
+  - A：查看logs目录下的日志文件或者使用docker命令查看
+      ```bash
+      docker logs qdjob(容器名称)
+      ```
 
 3. **Q：如何重启服务？**
-   ```bash
-   docker restart qdjob
-   ```
+  - A：使用docker命令重启
+      ```bash
+      docker restart qdjob(容器名称)
+      ```
 
 ### 完整配置目录结构
 
