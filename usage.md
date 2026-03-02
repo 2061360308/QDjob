@@ -65,7 +65,7 @@
      * 执行`QDjob`或者在`QDjob_editor`中点击执行任务。
 
 7. **部署到docker**  
-   见说明文档：[部署到docker自动执行](docker-baota.md)
+   见说明文档：[部署到docker自动执行](docker_config.md)
 
 ## 阅读时长上报使用说明
 1. **按照上面说明配置账号**  
