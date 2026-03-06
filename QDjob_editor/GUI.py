@@ -7,11 +7,12 @@ import webbrowser, threading
 from Login import QDLogin_PhoneCode, QDLogin_Password, get_random_phone
 from utils import check_login_status, check_login_risk, check_user_status, readtime_report
 
-import sys
+from datetime import datetime
+import sys, random
 import os
 import platform
 
-__version__ = 'v1.2.6'
+__version__ = 'v1.3.0'
 
 system = platform.system()
 if system == "Windows":
@@ -667,26 +668,24 @@ class ConfigEditor:
             messagebox.showerror("错误", f"检测风险状态时出错: {str(e)}", icon='error')
 
     def readtime_report_for_selected_user(self):
-        """对选中用户进行阅读时长上报"""
-        from datetime import datetime, timedelta
-        import random  # 引入random模块
+        """对选中用户进行阅读时长上报（仅批量生成）"""
 
         # --- 1. 预检查逻辑 ---
         selected = self.user_list.selection()
         if not selected:
             messagebox.showwarning("警告", "请先选择一个用户")
             return
-        
+
         index = self.user_list.index(selected[0])
         user = self.users_data[index]
         username = user["username"]
-        
+
         # 检查cookies
         cookies_file = user.get("cookies_file", "")
         if not cookies_file or not os.path.exists(cookies_file):
             messagebox.showwarning("警告", f"用户 '{username}' 的cookies未配置")
             return
-        
+
         try:
             with open(cookies_file, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -697,19 +696,17 @@ class ConfigEditor:
         except Exception as e:
             messagebox.showerror("错误", f"无法读取cookies: {str(e)}")
             return
-        
-        # 检查User Agent
+
         user_agent = user.get("user_agent", "")
         if not user_agent:
             user_agent = self.config_data["default_user_agent"]
-        
-        # 检查ibex
+
         ibex = user.get("ibex", "")
         if not ibex:
             messagebox.showwarning("警告", f"用户 '{username}' 的ibex未配置")
             return
 
-        # --- 2. 构建UI界面 ---
+        # --- 2. 构建UI界面（仅批量配置）---
         readtimepage_width = self.resolution_set.get("readtimepage_width")
         readtimepage_height = self.resolution_set.get("readtimepage_height")
 
@@ -718,179 +715,167 @@ class ConfigEditor:
         if readtimepage_width and readtimepage_height:
             dialog.geometry(f"{readtimepage_width}x{readtimepage_height}")
         else:
-            dialog.geometry("800x600")
+            dialog.geometry("900x700")
 
         dialog.transient(self.root)
         dialog.grab_set()
 
-        # 主容器
         main_frame = ttk.Frame(dialog, padding="15")
         main_frame.pack(fill="both", expand=True)
 
-        # 区域1：添加数据输入区
-        input_frame = ttk.LabelFrame(main_frame, text="添加阅读记录", padding="10")
-        input_frame.pack(fill="x", pady=(0, 10))
+        # ==================== 批量上报配置区域 ====================
+        batch_frame = ttk.LabelFrame(main_frame, text="批量上报阅读记录配置", padding="10")
+        batch_frame.pack(fill="x", pady=(0, 10))
 
-        # Grid布局配置
-        input_frame.grid_columnconfigure(1, weight=1)
-        input_frame.grid_columnconfigure(3, weight=1)
+        # 配置列权重：第0列标签，第1列输入框可拉伸，第2、3列按钮固定宽度
+        batch_frame.grid_columnconfigure(1, weight=1)   # 输入框可拉伸
+        batch_frame.grid_columnconfigure(2, weight=0)   # 搜索按钮不拉伸
+        batch_frame.grid_columnconfigure(3, weight=0)   # 获取章节按钮不拉伸
 
-        # Book ID
-        ttk.Label(input_frame, text="Book ID:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
-        book_id_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=book_id_var, style="Custom.TEntry").grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+        # 第0行：书籍ID输入 + 搜索按钮 + 获取章节列表按钮
+        ttk.Label(batch_frame, text="书籍ID:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
+        book_id_combo = ttk.Combobox(batch_frame, style="Custom.TEntry", width=30)
+        book_id_combo.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
 
-        # Chapter ID
-        ttk.Label(input_frame, text="Chapter ID:").grid(row=0, column=2, sticky="e", padx=5, pady=5)
-        chapter_id_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=chapter_id_var, style="Custom.TEntry").grid(row=0, column=3, sticky="ew", padx=5, pady=5)
+        search_btn = ttk.Button(batch_frame, text="搜索", style="Accent.TButton",
+                                command=lambda: self._search_books_popup(book_id_combo, user_agent, cookies, ibex))
+        search_btn.grid(row=0, column=2, padx=5, pady=5)
 
-        # 阅读时长 (分钟)
-        ttk.Label(input_frame, text="阅读时长(分钟):").grid(row=1, column=0, sticky="e", padx=5, pady=5)
-        duration_var = tk.StringVar(value="10") # 默认10分钟
-        ttk.Entry(input_frame, textvariable=duration_var, style="Custom.TEntry").grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        get_chapters_btn = ttk.Button(batch_frame, text="获取章节列表", style="Accent.TButton",
+                                    command=lambda: self._get_chapters(book_id_combo, chapters_tree))
+        get_chapters_btn.grid(row=0, column=3, padx=5, pady=5)
 
-        # 结束时间 (字符串，可编辑)
-        ttk.Label(input_frame, text="结束时间:").grid(row=1, column=2, sticky="e", padx=5, pady=5)
-        # 默认结束时间 = 当前时间戳 - 3000ms
+        # 第1行：章节列表（左侧） + 右侧随机选择面板
+        batch_frame.grid_rowconfigure(1, weight=1)  # 章节列表行可拉伸
+
+        # 章节列表框架（占左侧三列）
+        chapters_frame = ttk.Frame(batch_frame)
+        chapters_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
+
+        columns = ("name", "id")
+        chapters_tree = ttk.Treeview(chapters_frame, columns=columns, show="headings", selectmode="extended", height=4)
+        chapters_tree.heading("name", text="章节名称")
+        chapters_tree.heading("id", text="章节ID")
+        chapters_tree.column("name", width=300)
+        chapters_tree.column("id", width=100)
+
+        chapters_scrollbar = ttk.Scrollbar(chapters_frame, orient="vertical", command=chapters_tree.yview)
+        chapters_tree.configure(yscrollcommand=chapters_scrollbar.set)
+        chapters_tree.pack(side="left", fill="both", expand=True)
+        chapters_scrollbar.pack(side="right", fill="y")
+
+        # 右侧随机选择面板（重新布局：数量、按钮、提示）
+        random_right_frame = ttk.Frame(batch_frame)
+        random_right_frame.grid(row=1, column=3, sticky="n", padx=5, pady=5)  # 改为 sticky="n" 使内容贴顶
+        random_right_frame.grid_columnconfigure(0, weight=1)  # 让内部元素水平居中
+
+        # 随机数量选择（行0）
+        random_count_frame = ttk.Frame(random_right_frame)
+        random_count_frame.grid(row=0, column=0, pady=(0, 5))
+        ttk.Label(random_count_frame, text="随机选择数量:").pack(side="left", padx=2)
+        random_count_var = tk.IntVar(value=20)
+        ttk.Spinbox(random_count_frame, from_=1, to=100, textvariable=random_count_var, width=5).pack(side="left", padx=2)
+
+        # 随机选择按钮（行1）
+        random_btn = ttk.Button(random_right_frame, text="随机选择章节", style="Accent.TButton",
+                                command=lambda: self._random_select_chapters(chapters_tree, random_count_var.get()))
+        random_btn.grid(row=1, column=0, pady=5)
+
+        # 提示文字（行2）
+        hint_label = ttk.Label(random_right_frame, text="按住 shift 或 ctrl 可以手动进行多选",
+                            style="Help.TLabel", justify="center")
+        hint_label.grid(row=2, column=0, pady=5)
+
+        # 第2行：每章阅读时长范围
+        range_frame = ttk.Frame(batch_frame)
+        range_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        ttk.Label(range_frame, text="每章阅读时长范围(分钟):").pack(side="left", padx=5)
+        min_duration_var = tk.IntVar(value=5)
+        ttk.Spinbox(range_frame, from_=1, to=60, textvariable=min_duration_var, width=5).pack(side="left", padx=2)
+        ttk.Label(range_frame, text="—").pack(side="left")
+        max_duration_var = tk.IntVar(value=10)
+        ttk.Spinbox(range_frame, from_=1, to=60, textvariable=max_duration_var, width=5).pack(side="left", padx=2)
+        ttk.Label(range_frame, text="分钟").pack(side="left", padx=5)
+
+        # 第3行：最终阅读结束时间
+        final_end_frame = ttk.Frame(batch_frame)
+        final_end_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        ttk.Label(final_end_frame, text="最终阅读结束时间:").pack(side="left", padx=5)
         default_end_ts = int(time.time() * 1000) - 3000
         default_end_str = datetime.fromtimestamp(default_end_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
-        
-        end_time_var = tk.StringVar(value=default_end_str)
-        end_time_entry = ttk.Entry(input_frame, textvariable=end_time_var, style="Custom.TEntry")
-        end_time_entry.grid(row=1, column=3, sticky="ew", padx=5, pady=5)
+        final_end_var = tk.StringVar(value=default_end_str)
+        final_end_entry = ttk.Entry(final_end_frame, textvariable=final_end_var, style="Custom.TEntry", width=20)
+        final_end_entry.pack(side="left", padx=5)
 
-        # 开始时间 (显示用，自动计算)
-        ttk.Label(input_frame, text="开始时间(预估):").grid(row=2, column=0, sticky="e", padx=5, pady=5)
-        start_time_label = ttk.Label(input_frame, text="--", foreground="blue")
-        start_time_label.grid(row=2, column=1, sticky="w", padx=5, pady=5)
-        
-        def update_time_display(*args):
-            """仅用于UI显示预估时间，不涉及最终随机化逻辑"""
-            try:
-                minutes = float(duration_var.get())
-                end_str = end_time_var.get()
-                dt_obj = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
-                end_ts = dt_obj.timestamp()
-                
-                # 计算预估开始时间
-                start_ts = end_ts - (minutes * 60)
-                start_dt = datetime.fromtimestamp(start_ts)
-                
-                start_time_label.config(text=start_dt.strftime('%Y-%m-%d %H:%M:%S'))
-                return True
-            except ValueError:
-                start_time_label.config(text="时间格式错误")
-                return False
+        # 批量添加记录按钮（右侧，垂直居中于第2、3行）
+        batch_btn_frame = ttk.Frame(batch_frame)
+        batch_btn_frame.grid(row=2, column=3, rowspan=2, sticky="ns", padx=5)
+        batch_btn_frame.grid_rowconfigure(0, weight=1)
+        batch_add_btn = ttk.Button(batch_btn_frame, text="批量添加记录", style="Accent.TButton",
+                                command=lambda: self._batch_add_records(
+                                    chapters_tree, min_duration_var.get(), max_duration_var.get(),
+                                    final_end_var.get(), tree, book_id_combo, update_total_duration))
+        batch_add_btn.grid(row=1, column=0, pady=10)
 
-        # 绑定事件
-        duration_var.trace_add("write", update_time_display)
-        end_time_entry.bind("<FocusOut>", lambda e: update_time_display())
-        
-        # 初始化显示
-        update_time_display()
-
-        # 添加按钮逻辑
-        def add_to_list():
-            if not update_time_display():
-                messagebox.showerror("错误", "请检查时长和时间格式 (YYYY-MM-DD HH:MM:SS)")
-                return
-            
-            bid = book_id_var.get().strip()
-            cid = chapter_id_var.get().strip()
-            if not bid or not cid:
-                messagebox.showerror("错误", "Book ID 和 Chapter ID 不能为空")
-                return
-            
-            try:
-                # 1. 获取基础数据
-                base_minutes = float(duration_var.get())
-                base_end_str = end_time_var.get()
-                base_end_dt = datetime.strptime(base_end_str, '%Y-%m-%d %H:%M:%S')
-                base_end_ts = int(base_end_dt.timestamp() * 1000) # 毫秒
-                base_duration_ms = int(base_minutes * 60 * 1000)
-                
-                # 2. 生成随机抖动 (避免被检测)
-                # 结束时间随机偏移 ±999ms
-                end_jitter = random.randint(-999, 999)
-                real_end_ts = base_end_ts + end_jitter
-                
-                # 开始时间在原定间隔基础上也增加随机偏移 ±999ms
-                # 这样计算出的实际时长也会有轻微浮动，不再是精确的整分钟
-                start_jitter = random.randint(-999, 999)
-                # 基础开始时间 = 实际结束时间 - 基础时长
-                # 实际开始时间 = 基础开始时间 + 抖动
-                real_start_ts = (real_end_ts - base_duration_ms) + start_jitter
-                
-                # 3. 重新计算符合规则的实际时长 (endTime - startTime = readTime)
-                real_read_ms = real_end_ts - real_start_ts
-                
-                # 格式化显示时间 (包含毫秒信息以便确认)
-                display_start = datetime.fromtimestamp(real_start_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-                display_end = datetime.fromtimestamp(real_end_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-                
-                # 4. 添加到列表
-                tree.insert("", "end", values=(
-                    bid, 
-                    cid, 
-                    f"{real_read_ms/60000:.2f}", # 显示实际分钟数
-                    display_start, 
-                    display_end,
-                    f"{real_read_ms}|{real_start_ts}|{real_end_ts}" # metadata
-                ))
-                
-                # 5. 自动修改下一次配置
-                # 下一次结束时间 = 本次开始时间 - 随机间隔(1000ms~3000ms)
-                gap_ms = random.randint(1000, 3000)
-                next_end_ts = real_start_ts - gap_ms
-                next_end_str = datetime.fromtimestamp(next_end_ts / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
-                
-                # 更新UI控件
-                end_time_var.set(next_end_str)
-                chapter_id_var.set("") # 清空章节ID
-                
-                # 刷新预估时间显示
-                update_time_display()
-                
-            except Exception as e:
-                messagebox.showerror("错误", f"生成记录失败: {str(e)}")
-
-        ttk.Button(input_frame, text="添加记录", style="Accent.TButton", command=add_to_list).grid(row=2, column=3, sticky="e", padx=5, pady=5)
-
-        # 区域2：列表显示区
+        # ==================== 待上报列表（左树右控件布局）====================
         list_frame = ttk.LabelFrame(main_frame, text="待上报列表", padding="5")
         list_frame.pack(fill="both", expand=True, pady=5)
 
+        # 左侧树形列表框架
+        left_list_frame = ttk.Frame(list_frame)
+        left_list_frame.pack(side="left", fill="both", expand=True)
+
         columns = ("bookid", "chapterid", "duration", "starttime", "endtime", "metadata")
-        tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="extended")
-        
+        tree = ttk.Treeview(left_list_frame, columns=columns, show="headings", selectmode="extended", height=6)
         tree.heading("bookid", text="书籍ID")
         tree.heading("chapterid", text="章节ID")
         tree.heading("duration", text="时长(分)")
         tree.heading("starttime", text="开始时间")
         tree.heading("endtime", text="结束时间")
-        
         tree.column("bookid", width=100)
         tree.column("chapterid", width=100)
         tree.column("duration", width=60)
-        tree.column("starttime", width=150) # 加宽以显示毫秒
+        tree.column("starttime", width=150)
         tree.column("endtime", width=150)
-        tree.column("metadata", width=0, stretch=False) # 隐藏列
-        
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
+        tree.column("metadata", width=0, stretch=False)
+
+        scrollbar = ttk.Scrollbar(left_list_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
-        
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # 删除选中项
+        # 右侧控件框架
+        right_list_frame = ttk.Frame(list_frame, width=120)  # 固定宽度
+        right_list_frame.pack(side="right", fill="y", padx=(5, 0))
+        right_list_frame.pack_propagate(False)  # 防止收缩
+
+        # 总时长标签
+        total_duration_label = ttk.Label(right_list_frame, text="总时长:\n0 分钟", justify="center",
+                                        font=(self.default_font[0], self.default_font[1], "bold"))
+        total_duration_label.pack(pady=(10, 5))
+
+        # 删除按钮
         def delete_selected():
             for item in tree.selection():
                 tree.delete(item)
-        
-        ttk.Button(list_frame, text="删除选中行", style="Accent.TButton", command=delete_selected).pack(side="bottom", anchor="w", pady=5, padx=5)
+            update_total_duration()
 
-        # 区域3：底部操作区
+        delete_btn = ttk.Button(right_list_frame, text="删除选中行", style="Accent.TButton", command=delete_selected)
+        delete_btn.pack(pady=5)
+
+        # 更新总时长的函数
+        def update_total_duration():
+            total_minutes = 0.0
+            for item in tree.get_children():
+                values = tree.item(item, "values")
+                try:
+                    duration = float(values[2])
+                    total_minutes += duration
+                except (ValueError, IndexError):
+                    continue
+            total_duration_label.config(text=f"总时长:\n{total_minutes:.2f} 分钟")
+
+        # ==================== 底部操作区 ====================
         action_frame = ttk.Frame(main_frame)
         action_frame.pack(fill="x", pady=10)
 
@@ -899,9 +884,8 @@ class ConfigEditor:
             if not items:
                 messagebox.showwarning("提示", "列表为空，请先添加记录")
                 return
-            
+
             chapter_info_list = []
-            
             try:
                 for item in items:
                     values = tree.item(item, "values")
@@ -911,7 +895,7 @@ class ConfigEditor:
                     read_ms = int(metadata[0])
                     start_ts = int(metadata[1])
                     end_ts = int(metadata[2])
-                    
+
                     read_data = {
                         "readTime": read_ms,
                         "bookId": int(bid),
@@ -926,21 +910,191 @@ class ConfigEditor:
                         "sp": "",
                     }
                     chapter_info_list.append(read_data)
-                
-                # 调用后端接口
+
                 success = readtime_report(user_agent, cookies, ibex, chapter_info_list)
-                
                 if success:
                     messagebox.showinfo("成功", f"成功上报 {len(chapter_info_list)} 条阅读记录")
                     dialog.destroy()
                 else:
                     messagebox.showerror("失败", "上报失败，请检查日志或网络")
-                    
             except Exception as e:
                 messagebox.showerror("错误", f"构建数据或上报过程中出错: {str(e)}")
 
         ttk.Button(action_frame, text="确认上报", style="Accent.TButton", command=submit_report).pack(side="right", padx=10)
         ttk.Button(action_frame, text="取消", style="Accent.TButton", command=dialog.destroy).pack(side="right", padx=10)
+
+        # 初始化总时长
+        update_total_duration()
+
+    # ==================== 辅助方法（需放入ConfigEditor类中）====================
+    def _search_books_popup(self, combo, user_agent, cookies, ibex):
+        """搜索书籍并弹出选择窗口"""
+        keyword = combo.get().strip()
+        if not keyword:
+            messagebox.showwarning("警告", "请输入搜索关键词")
+            return
+        try:
+            from utils import search_books
+            booklist = search_books(user_agent, cookies, ibex, keyword)
+            if not booklist:
+                messagebox.showinfo("提示", "未找到相关书籍")
+                return
+
+            # 创建弹窗
+            popup = tk.Toplevel(self.root)
+            popup.title("选择书籍")
+            popup.geometry("600x400")
+            popup.transient(self.root)
+            popup.grab_set()
+
+            # 表格显示书籍列表
+            frame = ttk.Frame(popup, padding=10)
+            frame.pack(fill="both", expand=True)
+
+            columns = ("name", "author", "bookid")
+            tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse", height=8)
+            tree.heading("name", text="书籍名")
+            tree.heading("author", text="作者")
+            tree.heading("bookid", text="书籍ID")
+            tree.column("name", width=200)
+            tree.column("author", width=150)
+            tree.column("bookid", width=100)
+
+            scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            tree.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+
+            # 插入数据
+            for book in booklist:
+                tree.insert("", "end", values=(book['BookName'], book['AuthorName'], book['BookId']))
+
+            # 确认选择按钮
+            def confirm():
+                selected = tree.selection()
+                if not selected:
+                    messagebox.showwarning("警告", "请先选择一本书")
+                    return
+                item = tree.item(selected[0])
+                book_id = item['values'][2]
+                combo.set(str(book_id))
+                popup.destroy()
+
+            btn_frame = ttk.Frame(popup)
+            btn_frame.pack(fill="x", pady=10)
+            ttk.Button(btn_frame, text="确认", style="Accent.TButton", command=confirm).pack(side="left", padx=10, expand=True)
+            ttk.Button(btn_frame, text="取消", style="Accent.TButton", command=popup.destroy).pack(side="right", padx=10, expand=True)
+
+        except Exception as e:
+            messagebox.showerror("错误", f"搜索失败: {str(e)}")
+
+    def _get_chapters(self, book_id_combo, tree):
+        """获取章节列表并填充到Treeview"""
+        bookid = book_id_combo.get().strip()
+        if not bookid:
+            messagebox.showwarning("警告", "请输入书籍ID")
+            return
+        try:
+            from utils import get_chapters
+            chapterlist = get_chapters(bookid)
+            if not chapterlist:
+                messagebox.showinfo("提示", "未获取到章节列表")
+                return
+            # 清空并填充
+            for item in tree.get_children():
+                tree.delete(item)
+            for ch in chapterlist:
+                tree.insert("", "end", values=(ch['chapterName'], ch['chapterid']))
+        except Exception as e:
+            messagebox.showerror("错误", f"获取章节列表失败: {str(e)}")
+
+    def _random_select_chapters(self, tree, count):
+        """随机选择连续的count个章节"""
+        items = tree.get_children()
+        total = len(items)
+        if total == 0:
+            messagebox.showwarning("警告", "章节列表为空")
+            return
+        if count > total:
+            count = total
+        # 清除已有选中
+        tree.selection_remove(tree.selection())
+        start = random.randint(0, total - count)
+        for i in range(start, start + count):
+            tree.selection_add(items[i])
+
+    def _batch_add_records(self, chapters_tree, min_dur, max_dur, final_end_str, target_tree, book_id_combo, update_callback=None):
+        """批量生成阅读记录并添加到目标tree"""
+        # 获取选中的章节
+        selected = chapters_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先在章节列表中选择要上报的章节")
+            return
+        # 按列表顺序排序（索引从小到大）
+        items = chapters_tree.get_children()
+        selected_indices = [items.index(it) for it in selected]
+        selected_indices.sort()
+        selected_items = [items[i] for i in selected_indices]
+
+        # 解析最终结束时间
+        try:
+            final_dt = datetime.strptime(final_end_str, '%Y-%m-%d %H:%M:%S')
+            final_ts = int(final_dt.timestamp() * 1000)
+        except ValueError:
+            messagebox.showerror("错误", "最终结束时间格式错误，应为 YYYY-MM-DD HH:MM:SS")
+            return
+
+        if min_dur > max_dur:
+            messagebox.showerror("错误", "最小时长不能大于最大时长")
+            return
+
+        # 从后向前生成记录
+        current_end_ts = final_ts
+        records = []
+        for item in reversed(selected_items):
+            ch_name, ch_id = chapters_tree.item(item, 'values')
+            # 随机生成阅读时长（分钟）
+            minutes = random.randint(min_dur, max_dur)
+            read_ms = minutes * 60 * 1000
+            # 开始时间 = 结束时间 - 阅读时长
+            start_ts = current_end_ts - read_ms
+            # 加入列表（顺序：后面插入的会排在前面，最终再反转）
+            records.append({
+                'bookid': '',  # 书籍ID需要从外部传入？这里先留空，后续从章节列表所在书籍获取？但批量添加时书籍ID是固定的，可以从book_id_combo获取
+                'chapterid': ch_id,
+                'read_ms': read_ms,
+                'start_ts': start_ts,
+                'end_ts': current_end_ts
+            })
+            # 为下一个（更早的）章节生成一个随机间隔（1-3秒）
+            gap_ms = random.randint(1000, 3000)
+            current_end_ts = start_ts - gap_ms
+
+        # 反转记录，使其按时间正序（最早的在前）
+        records.reverse()
+
+        # 获取书籍ID（从批量区域的书籍ID输入框）
+        bookid = book_id_combo.get().strip()
+        if not bookid:
+            messagebox.showwarning("警告", "请先在批量区域填写书籍ID")
+            return
+
+        for rec in records:
+            start_str = datetime.fromtimestamp(rec['start_ts'] / 1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            end_str = datetime.fromtimestamp(rec['end_ts'] / 1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            target_tree.insert("", "end", values=(
+                bookid,
+                rec['chapterid'],
+                f"{rec['read_ms']/60000:.2f}",
+                start_str,
+                end_str,
+                f"{rec['read_ms']}|{rec['start_ts']}|{rec['end_ts']}"
+            ))
+
+        if update_callback:
+            update_callback()  # 更新总时长
+
+        messagebox.showinfo("成功", f"已生成 {len(records)} 条阅读记录，请核对后上报")
         
     def validate_username(self, username):
         """验证用户名是否符合格式要求"""

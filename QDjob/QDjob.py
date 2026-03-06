@@ -11,7 +11,7 @@ from push import *
 from logger import LoggerManager
 from logger import DEFAULT_LOG_RETENTION
 
-__version__ = 'v1.2.6'
+__version__ = 'v1.3.0'
 
 # 配置常量
 CONFIG_FILE = 'config.json'
@@ -871,7 +871,7 @@ class QidianClient:
                             return {'status': 'error', 'error': '未知异常'}
                     else:
                         logger.info("游戏中心任务未完成，开始执行游戏中心任务")
-                if re.fullmatch(r"首次玩.*10分钟", task['Title']):
+                if re.match(r"首次玩.*10分钟", task['Title']):
                     type_gamejob = 2
                     is_finished = task['IsFinished']
                     is_received = task['IsReceived']
@@ -1002,7 +1002,7 @@ class QidianClient:
                         else:
                             logger.error("游戏中心任务未完成")
                             return {'status': 'failed', 'code': 10086}
-                    if re.fullmatch(r"首次玩.*10分钟", task['Title']):
+                    if re.match(r"首次玩.*10分钟", task['Title']):
                         is_received = task['IsReceived']
                         if is_received == 1:
                             logger.info("游戏中心任务已完成")
