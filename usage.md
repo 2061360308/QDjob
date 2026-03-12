@@ -68,10 +68,14 @@
 ### 部署到docker  
    见说明文档：[部署到docker自动执行](docker_config.md)  
 
-### Pypi包管理  
+### Pypi包管理(仅支持linux amd64架构)  
    由[盧瞳](https://github.com/2061360308)进行维护，可直接由pip命令进行安装
    ```bash
    pip install qdjobtool
+   ```
+   定时任务辅助脚本命令：
+   ```bash
+   QDjob_cron
    ```
    更新命令：
    ```bash
