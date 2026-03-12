@@ -1,4 +1,5 @@
-## 使用方法
+## 使用方法  
+### 基础使用方式
 由于本项目核心加密参数不公开，因此请下载release中的exe文件，并按照以下步骤使用。  
 1. **下载[release](https://github.com/JaniQuiz/QDjob/releases)中的`QDjob.exe`和`QDjob_editor.exe`文件，放到同一个目录下**
 
@@ -64,8 +65,18 @@
 
      * 执行`QDjob`或者在`QDjob_editor`中点击执行任务。
 
-7. **部署到docker**  
-   见说明文档：[部署到docker自动执行](docker_config.md)
+### 部署到docker  
+   见说明文档：[部署到docker自动执行](docker_config.md)  
+
+### Pypi包管理  
+   由[盧瞳](https://github.com/2061360308)进行维护，可直接由pip命令进行安装
+   ```bash
+   pip install qdjobtool
+   ```
+   更新命令：
+   ```bash
+   pip install qdjobtool --upgrade
+   ```
 
 ## 阅读时长上报使用说明
 1. **按照上面说明配置账号** 
