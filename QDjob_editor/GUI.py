@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import os, re
 import json
 import time
@@ -12,7 +12,7 @@ import sys, random
 import os
 import platform
 
-__version__ = 'v1.3.0'
+__version__ = 'v1.3.1'
 
 system = platform.system()
 if system == "Windows":
@@ -120,7 +120,7 @@ class ConfigEditor:
             main_width = 380
             main_height = 360
             userpage_width = 380
-            userpage_height = 330
+            userpage_height = 350
             loginpage_width = 380
             loginpage_height = 300
             pushpage_width = 250
@@ -133,7 +133,7 @@ class ConfigEditor:
             main_width = 580
             main_height = 550
             userpage_width = 580
-            userpage_height = 500
+            userpage_height = 540
             loginpage_width = 580
             loginpage_height = 470
             pushpage_width = 320
@@ -146,7 +146,7 @@ class ConfigEditor:
             main_width = 800
             main_height = 770
             userpage_width = 800
-            userpage_height = 700
+            userpage_height = 750
             loginpage_width = 800
             loginpage_height = 660
             pushpage_width = 500
@@ -159,7 +159,7 @@ class ConfigEditor:
             main_width = 1000
             main_height = 900
             userpage_width = 1000
-            userpage_height = 850
+            userpage_height = 900
             loginpage_width = 1000
             loginpage_height = 800
             pushpage_width = 550
@@ -172,8 +172,8 @@ class ConfigEditor:
             main_width = 1200
             main_height = 1000
             userpage_width = 1200
-            userpage_height = 960
-            loginpage_width = 120
+            userpage_height = 1030
+            loginpage_width = 1200
             loginpage_height = 900
             pushpage_width = 600
             pushpage_height = 700
@@ -447,7 +447,7 @@ class ConfigEditor:
             row=2, column=0, sticky="w", padx=5, pady=2)
 
         # 创建超链接标签
-        github_link = ttk.Label(author_frame, text="GitHub: https://github.com/JaniQuiz/QDjob",
+        github_link = ttk.Label(author_frame, text="GitHub: https://github.com/qdjob/QDjob",
                             foreground="blue", cursor="hand2", font=self.small_font)
         github_link.grid(row=3, column=0, sticky="w", padx=5, pady=2)
         
@@ -461,7 +461,7 @@ class ConfigEditor:
 
         # 绑定超链接点击事件
         def callback(event):
-            webbrowser.open_new(r"https://github.com/JaniQuiz/QDjob")
+            webbrowser.open_new(r"https://github.com/qdjob/QDjob")
 
         github_link.bind("<Button-1>", callback)
 
@@ -2047,6 +2047,18 @@ class ConfigEditor:
             ttk.Checkbutton(task_frame, text=task, variable=var).grid(
                 row=i//3, column=i%3, sticky="w", padx=10, pady=5)
             task_vars[task] = var
+        
+        # 新增阅读时长上报任务（第3行第0列）
+        readtime_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(task_frame, text="阅读时长上报", variable=readtime_var).grid(
+            row=2, column=0, sticky="w", padx=10, pady=5)
+        task_vars["阅读时长上报"] = readtime_var
+
+        # 配置按钮（第3行第1列）
+        readtime_config_var = {}  # 临时存储配置，保存时存入用户数据
+        ttk.Button(task_frame, text="配置", style="Accent.TButton",
+                command=lambda: self._edit_readtime_config(dialog, username_var.get(), readtime_config_var)
+                ).grid(row=2, column=1, sticky="w", padx=5)
 
         # ====推送服务配置====
         push_frame = ttk.LabelFrame(form_frame, text="推送服务")
@@ -2675,6 +2687,7 @@ class ConfigEditor:
                 "usertype": usertype_var.get(),
                 "tokenid": tokenid_var.get(),
                 "tasks": {task: var.get() for task, var in task_vars.items()},
+                "readtime_task_config": readtime_config_var,
                 "push_services": [
                     {k: v for k, v in service.items() if k != "title"}
                     for service in push_services
@@ -2779,6 +2792,22 @@ class ConfigEditor:
             ttk.Checkbutton(task_frame, text=task, variable=var).grid(
                 row=i//3, column=i%3, sticky="w", padx=10, pady=5)
             task_vars[task] = var
+
+        # 在 edit_user 中，获取已有阅读时长配置
+        readtime_config = user.get("readtime_task_config", {})
+        if not readtime_config:
+            readtime_config = {"book_ids": [], "min_duration": 5, "max_duration": 10, "total_duration": 60}
+
+        # 阅读时长上报任务（第3行第0列）
+        readtime_var = tk.BooleanVar(value=user["tasks"].get("阅读时长上报", True))
+        ttk.Checkbutton(task_frame, text="阅读时长上报", variable=readtime_var).grid(
+            row=2, column=0, sticky="w", padx=10, pady=5)
+        task_vars["阅读时长上报"] = readtime_var
+
+        # 配置按钮（第3行第1列）
+        ttk.Button(task_frame, text="配置", style="Accent.TButton",
+                command=lambda: self._edit_readtime_config(dialog, user["username"], readtime_config)
+                ).grid(row=2, column=1, sticky="w", padx=5)
 
         # ====推送服务配置====
         push_frame = ttk.LabelFrame(form_frame, text="推送服务")
@@ -3436,9 +3465,10 @@ class ConfigEditor:
             edited_user = {
                 "username": new_username,
                 "cookies_file": new_cookies_file,
-                "usertype": self.usertype_var.get(),  # 新增
-                "tokenid": self.tokenid_var.get(),    # 新增
+                "usertype": self.usertype_var.get(),
+                "tokenid": self.tokenid_var.get(),
                 "tasks": {task: var.get() for task, var in task_vars.items()},
+                "readtime_task_config": readtime_config,
                 "push_services": [
                     {k: v for k, v in service.items() if k != "title"}
                     for service in updated_push_services or []
@@ -3477,6 +3507,216 @@ class ConfigEditor:
             del self.users_data[index]
             self.refresh_user_list()
             self.save_users_config() # 实时保存用户配置更改 也可以删了，就会变成只有主界面的保存按钮才能保存
+
+    def _edit_readtime_config(self, parent, username, config_dict):
+        """
+        编辑阅读时长任务配置的对话框
+        :param parent: 父窗口
+        :param username: 当前用户名（用于获取 cookies 等信息）
+        :param config_dict: 用于保存配置的字典（可变对象）
+        """
+        # 获取用户已有的 cookies 和 UA（用于搜索）
+        user = next((u for u in self.users_data if u["username"] == username), None)
+        if user:
+            cookies_file = user.get("cookies_file")
+            cookies = {}
+            if cookies_file and os.path.exists(cookies_file):
+                try:
+                    with open(cookies_file, 'r', encoding='utf-8') as f:
+                        cookies = json.load(f)
+                except:
+                    cookies = {}
+            user_agent = user.get("user_agent") or self.config_data.get("default_user_agent", "")
+            ibex = user.get("ibex", "")
+        else:
+            cookies = {}
+            user_agent = self.config_data.get("default_user_agent", "")
+            ibex = ""
+
+        readtime_report_width = self.resolution_set.get("pushpage_width")
+        readtime_report_height = self.resolution_set.get("pushpage_height")
+
+        dialog = tk.Toplevel(parent)
+        dialog.title("阅读时长上报任务配置")
+        dialog.geometry(f"{readtime_report_width}x{readtime_report_height}")
+        dialog.transient(parent)
+        dialog.grab_set()
+
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill="both", expand=True)
+
+        # ===== 书籍ID列表 =====
+        book_frame = ttk.LabelFrame(main_frame, text="书籍ID列表", padding="5")
+        book_frame.pack(fill="both", expand=True, pady=5)
+
+        # 左侧列表框 + 滚动条
+        list_frame = ttk.Frame(book_frame)
+        list_frame.pack(side="left", fill="both", expand=True)
+
+        book_listbox = tk.Listbox(list_frame, selectmode="extended", height=8)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=book_listbox.yview)
+        book_listbox.configure(yscrollcommand=scrollbar.set)
+        book_listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 右侧按钮
+        btn_frame = ttk.Frame(book_frame)
+        btn_frame.pack(side="right", fill="y", padx=(5,0))
+
+        def add_books():
+            """搜索并添加书籍"""
+            keyword = simpledialog.askstring("搜索书籍", "请输入书籍关键词：", parent=dialog)
+            if not keyword:
+                return
+            # 调用多选搜索方法
+            selected_ids = self._search_books_multiselect(dialog, user_agent, cookies, ibex, keyword)
+            if selected_ids:
+                for bid in selected_ids:
+                    # 避免重复
+                    if str(bid) not in book_listbox.get(0, tk.END):
+                        book_listbox.insert(tk.END, str(bid))
+
+        def add_manual():
+            ids_str = tk.simpledialog.askstring("手动添加书籍ID", "请输入书籍ID（多个用逗号分隔）：", parent=dialog)
+            if not ids_str:
+                return
+            parts = [p.strip() for p in ids_str.split(',') if p.strip()]
+            added = 0
+            for p in parts:
+                if p.isdigit():
+                    if p not in book_listbox.get(0, tk.END):
+                        book_listbox.insert(tk.END, p)
+                        added += 1
+                else:
+                    messagebox.showwarning("警告", f"无效的书籍ID: {p}，仅支持数字，已跳过", parent=dialog)
+            if added:
+                messagebox.showinfo("成功", f"已添加 {added} 个书籍ID", parent=dialog)
+
+        ttk.Button(btn_frame, text="手动添加", style="Accent.TButton", command=add_manual).pack(fill="x", pady=2)
+
+        def delete_selected():
+            for i in reversed(book_listbox.curselection()):
+                book_listbox.delete(i)
+
+        ttk.Button(btn_frame, text="搜索添加", style="Accent.TButton", command=add_books).pack(fill="x", pady=2)
+        ttk.Button(btn_frame, text="删除选中", style="Accent.TButton", command=delete_selected).pack(fill="x", pady=2)
+
+        # 初始化现有书籍ID
+        for bid in config_dict.get("book_ids", []):
+            book_listbox.insert(tk.END, str(bid))
+
+        # ===== 时长范围 =====
+        range_frame = ttk.Frame(main_frame)
+        range_frame.pack(fill="x", pady=5)
+
+        ttk.Label(range_frame, text="每章阅读时长范围(分钟):").pack(side="left", padx=5)
+        min_dur_var = tk.IntVar(value=config_dict.get("min_duration", 5))
+        max_dur_var = tk.IntVar(value=config_dict.get("max_duration", 10))
+        ttk.Spinbox(range_frame, from_=1, to=60, textvariable=min_dur_var, width=5).pack(side="left")
+        ttk.Label(range_frame, text="—").pack(side="left")
+        ttk.Spinbox(range_frame, from_=1, to=60, textvariable=max_dur_var, width=5).pack(side="left")
+        ttk.Label(range_frame, text="分钟").pack(side="left", padx=5)
+
+        # ===== 阅读总时长 =====
+        total_frame = ttk.Frame(main_frame)
+        total_frame.pack(fill="x", pady=5)
+
+        ttk.Label(total_frame, text="阅读总时长(分钟):").pack(side="left", padx=5)
+        total_dur_var = tk.IntVar(value=config_dict.get("total_duration", 120))
+        ttk.Spinbox(total_frame, from_=1, to=1440, textvariable=total_dur_var, width=8).pack(side="left")
+        ttk.Label(total_frame, text="分钟").pack(side="left", padx=5)
+
+        # ===== 底部按钮 =====
+        bottom_frame = ttk.Frame(main_frame)
+        bottom_frame.pack(fill="x", pady=10)
+
+        def save_config():
+            # 从列表框收集书籍ID（转换为字符串）
+            book_ids = []
+            for i in range(book_listbox.size()):
+                try:
+                    book_ids.append(str(book_listbox.get(i)))
+                except:
+                    pass
+            config_dict.clear()
+            config_dict.update({
+                "book_ids": book_ids,
+                "min_duration": min_dur_var.get(),
+                "max_duration": max_dur_var.get(),
+                "total_duration": total_dur_var.get()
+            })
+            dialog.destroy()
+
+        ttk.Button(bottom_frame, text="保存", style="Accent.TButton", command=save_config).pack(side="right", padx=5)
+        ttk.Button(bottom_frame, text="取消", style="Accent.TButton", command=dialog.destroy).pack(side="right", padx=5)
+
+        dialog.wait_window()  # 等待对话框关闭
+
+    def _search_books_multiselect(self, parent, user_agent, cookies, ibex, keyword):
+        """弹出多选书籍对话框，返回选中的书籍ID列表"""
+        from utils import search_books
+
+        try:
+            booklist = search_books(user_agent, cookies, ibex, keyword)
+            if not booklist:
+                messagebox.showinfo("提示", "未找到相关书籍", parent=parent)
+                return []
+        except Exception as e:
+            messagebox.showerror("错误", f"搜索失败: {str(e)}", parent=parent)
+            return []
+
+        search_books_width = self.resolution_set.get("pushpage_width")
+        search_books_height = self.resolution_set.get("pushpage_height")
+
+        # 创建弹窗
+        popup = tk.Toplevel(parent)
+        popup.title("选择书籍（可多选）")
+        popup.geometry(f"{search_books_width}x{search_books_height}")
+        popup.transient(parent)
+        popup.grab_set()
+
+        frame = ttk.Frame(popup, padding=10)
+        frame.pack(fill="both", expand=True)
+
+        # 表格显示书籍列表
+        columns = ("name", "author", "bookid")
+        tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended", height=12)
+        tree.heading("name", text="书籍名")
+        tree.heading("author", text="作者")
+        tree.heading("bookid", text="书籍ID")
+        tree.column("name", width=180)
+        tree.column("author", width=100)
+        tree.column("bookid", width=100)
+
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 插入数据
+        for book in booklist:
+            tree.insert("", "end", values=(book['BookName'], book['AuthorName'], book['BookId']))
+
+        result = []
+
+        def confirm():
+            nonlocal result
+            selected = tree.selection()
+            if not selected:
+                messagebox.showwarning("警告", "请至少选择一本书", parent=popup)
+                return
+            for item in selected:
+                values = tree.item(item, "values")
+                result.append(str(values[2]))  # 书籍ID
+            popup.destroy()
+
+        btn_frame = ttk.Frame(popup)
+        btn_frame.pack(fill="x", pady=10)
+        ttk.Button(btn_frame, text="确认", style="Accent.TButton", command=confirm).pack(side="left", padx=10, expand=True)
+        ttk.Button(btn_frame, text="取消", style="Accent.TButton", command=popup.destroy).pack(side="right", padx=10, expand=True)
+
+        popup.wait_window()
+        return result
     
     def create_cookies_converter(self, parent, default_content=None):
         """创建带转换功能的Cookies配置区域"""

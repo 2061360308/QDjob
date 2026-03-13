@@ -174,15 +174,15 @@ class QiweiPush(PushService):
         try:
             url = self.webhook_url
             data = {
-                "msgtype": "markdown",
-                "markdown": {
+                "msgtype": "text",
+                "text": {
                     "content": f'## {title} \n {content}',
                 },
             }
             if self.userids != []: 
-                data["markdown"]["mentioned_list"] = self.userids
+                data["text"]["mentioned_list"] = self.userids
             if self.phoneids != []: 
-                data["markdown"]["mentioned_mobile_list"] = self.phoneids
+                data["text"]["mentioned_mobile_list"] = self.phoneids
 
             response = requests.post(url, json=data, timeout=10)
             response.raise_for_status()

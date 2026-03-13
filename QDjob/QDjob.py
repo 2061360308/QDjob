@@ -11,7 +11,7 @@ from push import *
 from logger import LoggerManager
 from logger import DEFAULT_LOG_RETENTION
 
-__version__ = 'v1.3.0'
+__version__ = 'v1.3.1'
 
 # 配置常量
 CONFIG_FILE = 'config.json'
@@ -29,7 +29,7 @@ class UserConfig:
     """用户配置"""
     def __init__(self, username: str, cookies: Dict[str, str], 
                  tasks: Dict[str, bool], user_agent: str, ibex: str,
-                 push_services: List[PushService], tokenid: Optional[str] = None, 
+                 push_services: List[PushService], readtime_task_config: Dict[str, Any], tokenid: Optional[str] = None, 
                  usertype: Optional[str] = None):
         self.username = username
         self.cookies = cookies
@@ -37,6 +37,7 @@ class UserConfig:
         self.user_agent = user_agent
         self.ibex = ibex
         self.push_services = push_services
+        self.readtime_task_config = readtime_task_config
         self.tokenid = tokenid
         self.usertype = usertype
 
@@ -110,6 +111,7 @@ class ConfigManager:
                         f"默认: {self.config.get('default_user_agent')})")
 
             ibex = user_data.get('ibex', '')
+            readtime_task_config = user_data.get('readtime_task_config', {})
 
             user = UserConfig(
                 username=user_data['username'],
@@ -118,6 +120,7 @@ class ConfigManager:
                 user_agent=user_agent,
                 ibex=ibex,
                 push_services=push_services,
+                readtime_task_config=readtime_task_config,
                 tokenid=user_data.get('tokenid'),
                 usertype=user_data.get('usertype'),
             )
@@ -713,6 +716,90 @@ class QidianClient:
         # 处理其他可能的错误情况
         logger.error(f"激励任务执行失败: {result}")
         return {'status': 'failed', 'raw_response': result}
+    
+    def get_chapters(self, bookid: str) -> dict:
+        """获取章节列表"""
+        url = f'https://wxapp.qidian.com/api/book/categoryV2?bookId={bookid}'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36',
+        }
+        try: 
+            response = requests.get(url, headers=headers)
+            res_text = response.text
+            logger.debug(f"获取章节列表: {res_text}")
+            result = response.json()
+            if result.get('code') != 0:
+                logger.error(f"响应结果错误：{result.get('msg')}")
+                return []
+            if not result.get('data'): 
+                logger.error(f"获取数据失败：{result.get('msg')}")
+                return []
+            if not result['data'].get('bookName'):
+                logger.error("获取书名失败")
+                return []
+            logger.info(f"获取章节列表成功，书名：{result['data']['bookName']}")
+            volumelist = result.get('data', {}).get('vs')
+            chapterlist = []
+            for volume in volumelist: 
+                for chapter in volume.get('cs', []):
+                    chapterlist.append({
+                        'chapterid': chapter.get('id'),
+                        'chapterName': chapter.get('cN'),
+                        'postTime': chapter.get('uT'),
+                        'chapterWordscount': chapter.get('cnt'),
+                    })
+            return chapterlist
+        except Exception as e:
+            logger.error(f"获取章节列表异常: {e}")
+            return []
+        
+    def do_readtime_report(self, chapter_Info: dict):
+        """上报阅读时长"""
+        chapterreadtimeinfo = json.dumps(chapter_Info, separators=(',', ':'))
+
+        url = "https://druidv6.if.qidian.com/argus/api/v2/common/statistics/readingtime"
+        headers = {
+            'tstamp': '',
+            'cecelia': '',
+            'QDInfo': '',
+            'User-Agent': '',
+            'borgus': '',
+            'ibex': '',
+            'QDSign': '',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Host': 'druidv6.if.qidian.com',
+            'Connection': 'Keep-Alive',
+        }
+        data = {
+            'chapterReadTimeInfo': chapterreadtimeinfo,
+        }
+        ts = str(int(time.time() * 1000))
+        data_encrypt = {
+            'chapterReadTimeInfo': chapterreadtimeinfo,
+        }
+        QDSign = getQDSign(ts, data_encrypt, self.version, self.qid, userid=self.userid)
+        QDInfo = getQDInfo_byQDInfo(ts, self.QDInfo)
+        ibex = getibex_byibex(ts, self.ibex)
+        borgus = getborgus(ts, data_encrypt, self.versioncode, self.qid)
+        headers.update({
+            'tstamp': ts,
+            'QDInfo': QDInfo,
+            'QDSign': QDSign,
+            'borgus': borgus,
+            'ibex': ibex,
+        })
+        self.config.cookies['QDInfo'] = QDInfo
+        try:
+            response = requests.post(url, data=data, cookies=self.config.cookies, headers=headers)
+            res_text = response.text
+            logger.debug(f"上报阅读时长: {res_text}")
+            result = response.json()
+            if result.get('Result') == 0 or result.get('Result') == "0":
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"上报阅读时长异常: {e}")
+            return False
 
     def advjob(self) -> dict:
         """执行激励碎片任务"""
@@ -1172,6 +1259,111 @@ class QidianClient:
         except Exception as e:
             logger.error(f"每周自动兑换章节卡任务异常: {e}")
             return {'status': 'error', 'error': str(e)}
+        
+    def readtime_report(self) -> dict:
+        """
+        阅读时长上报任务
+        根据用户配置的书籍ID、每章时长范围及总时长，自动生成连续章节的阅读记录并上报
+        返回格式与其他任务一致：{'status': 'success'} 或 {'status': 'failed'}
+        """
+        try:
+            # 1. 获取配置
+            config = self.config.readtime_task_config
+            if not config:
+                logger.warning("未配置阅读时长上报任务参数")
+                return {'status': 'failed', 'reason': '缺少阅读时长配置'}
+
+            book_ids = config.get('book_ids', [])
+            min_dur = config.get('min_duration', 5)
+            max_dur = config.get('max_duration', 10)
+            total_dur = config.get('total_duration', 60)
+
+            if not book_ids:
+                logger.warning("未配置需要上报阅读时长的书籍ID")
+                return {'status': 'failed', 'reason': '书籍ID列表为空'}
+
+            # 2. 随机选择一本书
+            book_id = random.choice(book_ids)
+            logger.info(f"随机选择书籍ID: {book_id}")
+
+            # 3. 获取章节列表
+            chapters = self.get_chapters(book_id)  # 返回列表，每个元素包含 chapterid, chapterName 等
+            if not chapters:
+                logger.error(f"获取书籍[{book_id}]章节列表失败")
+                return {'status': 'failed', 'reason': '章节列表为空'}
+
+            total_chapters = len(chapters)
+            logger.info(f"书籍[{book_id}]共有 {total_chapters} 章")
+
+            # 4. 随机生成阅读时长（分钟），累加直到达到或超过总时长
+            durations = []
+            accumulated = 0
+            while accumulated < total_dur:
+                dur = random.randint(min_dur, max_dur)
+                durations.append(dur)
+                accumulated += dur
+
+            N = len(durations)
+            logger.info(f"需要上报 {N} 章，总时长 {accumulated} 分钟（目标 {total_dur} 分钟）")
+
+            # 5. 检查章节数量是否足够
+            if total_chapters < N:
+                logger.error(f"书籍[{book_id}]章节数不足（需要 {N} 章，实际 {total_chapters} 章）")
+                return {'status': 'failed', 'reason': '章节数不足'}
+
+            # 6. 随机选取连续 N 章
+            start_idx = random.randint(0, total_chapters - N)
+            selected_chapters = chapters[start_idx:start_idx + N]
+            logger.info(f"选取章节范围: {start_idx+1} ~ {start_idx+N}")
+
+            # 7. 生成时间戳（毫秒），最后一章结束时间为当前时间减去随机偏移（1~5秒）
+            now_ms = int(time.time() * 1000)
+            final_end = now_ms - random.randint(1000, 5000)
+
+            # 从后向前生成记录
+            chapter_Info = []
+            current_end = final_end
+            # 逆序遍历章节（从最后一章到第一章）
+            for idx, ch in enumerate(reversed(selected_chapters)):
+                read_ms = durations[N - 1 - idx] * 60 * 1000  # 对应时长的毫秒数
+                start_ts = current_end - read_ms
+                # 构建单条阅读数据
+                read_data = {
+                    "readTime": read_ms,
+                    "bookId": int(book_id),
+                    "chapterId": int(ch['chapterid']),
+                    "startTime": start_ts,
+                    "endTime": current_end,
+                    "bookType": 1,
+                    "chapterVip": 1,
+                    "scrollMode": 1,
+                    "unlockStatus": -100,
+                    "unlockReason": -100,
+                    "sp": "",
+                }
+                chapter_Info.append(read_data)
+                # 为前一个章节生成间隔（1~3秒）
+                gap_ms = random.randint(1000, 3000)
+                current_end = start_ts - gap_ms
+
+            # 由于是从后向前生成，实际记录顺序是反的（最后一章在前），但接口不要求顺序，所以无需反转
+            logger.info(f"生成 {len(chapter_Info)} 条阅读记录，准备上报")
+
+            # 8. 调用 utils 中的上报函数
+            success = self.do_readtime_report(chapter_Info=chapter_Info)
+
+            if success:
+                logger.info("阅读时长上报成功")
+                return {'status': 'success'}
+            else:
+                logger.error("阅读时长上报失败")
+                return {'status': 'failed'}
+
+        except Exception as e:
+            logger.error(f"阅读时长上报任务异常: {e}")
+            return {'status': 'error', 'error': str(e)}
+        
+        
     
     # 其他核心功能方法...
 
@@ -1258,6 +1450,11 @@ class TaskProcessor:
             # ('其他任务', self.other_task_func),
             # 添加其他任务...
         ]
+
+        # 仅在配置了阅读时长上报的配置项后才会执行该任务
+        if self.user.readtime_task_config:
+            tasks.append(('阅读时长上报', self.client.readtime_report))
+
         # 获取当前星期，如果为周日，则添加每周自动兑换章节卡任务
         if time.strftime('%w') == '0':
             tasks.append(('每周自动兑换章节卡', self.client.weekly_exchange_card))

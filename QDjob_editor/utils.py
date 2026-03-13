@@ -185,7 +185,7 @@ def check_login_risk(user_agent, cookies, ibex):
         logger.error(f"登录检测异常: {e}")
         return False
 
-def search_books(user_agent, cookies, ibex, keyword, count="20"):
+def search_books_simple(user_agent, cookies, ibex, keyword, count="20"):
     '''搜索书籍'''
     user_data = solve_user(user_agent, cookies)
     if not user_data: 
@@ -251,6 +251,99 @@ def search_books(user_agent, cookies, ibex, keyword, count="20"):
             logger.error(f"[search_books] 获取数据失败：{result.get('Message')}")
             return []
         booklist = result.get('Data', {}).get('SimpleBookInfoPageList')
+        return booklist
+    except Exception as e:
+        logger.error(f"搜索书籍异常: {e}")
+        return []
+    
+def search_books(user_agent, cookies, ibex, keyword):
+    '''搜索书籍'''
+    user_data = solve_user(user_agent, cookies)
+    if not user_data: 
+        logger.error('无法处理用户数据，请检查Cookies')
+        return []
+    version = user_data.get('version', '')
+    versioncode = user_data.get('versioncode', '')
+    qid = user_data.get('qid', '')
+    QDInfo = user_data.get('QDInfo', '')
+    userid = user_data.get('userid', '')
+
+    ts = str(int(time.time() * 1000))
+
+    url = 'https://druidv6.if.qidian.com/argus/api/v2/booksearch/searchbooks'
+    params = {
+        'keywordType': '3',
+        'siteId': '1',
+        'keyword': keyword,
+        'pageSize': '20',
+        'pageIndex': '1',
+    }
+    params_encrypt = {
+        'keywordType': '3',
+        'siteId': '1',
+        'keyword': keyword,
+        'pageSize': '20',
+        'pageIndex': '1',
+    }
+    headers = {
+        'User-Agent': "Mozilla/mobile QDReaderAndroid/7.9.420/1656/1000009/Lenovo",
+        'Connection': "Keep-Alive",
+        'Accept-Encoding': "gzip",
+        'tstamp': ts,
+        'abtest-gzip': "",
+        'cecelia': "",
+        'QDInfo': "",
+        'borgus': "",
+        'ibex': "",
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Host': 'druidv6.if.qidian.com',
+        'QDSign': "",
+    }
+    QDSign = getQDSign(ts, params_encrypt, version, qid, userid=userid)
+    QDInfo = getQDInfo_byQDInfo(ts, QDInfo)
+    borgus = getborgus(ts, params_encrypt, versioncode, qid)
+    ibex = getibex_byibex(ts, ibex)
+    headers.update({
+        'tstamp': ts,
+        'QDInfo': QDInfo,
+        'QDSign': QDSign,
+        'borgus': borgus,
+        'ibex': ibex,
+    })
+    cookies['QDInfo'] = QDInfo
+    try:
+        response = requests.get(url, params=params, cookies=cookies, headers=headers)
+        res_text = response.text
+        logger.info(f"[search_books] 搜索书籍: {res_text}")
+        result = response.json()
+
+        if result.get('Result') != 0 and result.get('Result') != "0":
+            logger.error(f"[search_books] 响应结果错误：{result.get('Message')}")
+            return []
+        if not result.get('Data'):
+            logger.error(f"[search_books] 获取数据失败：{result.get('Message')}")
+            return []
+        if not result.get('Data', {}).get('CardList'):
+            logger.error(f"[search_books] 获取数据失败：{result.get('Message')}")
+            return []
+        cardlist = result.get('Data', {}).get('CardList')
+        booklist = []
+        for card in cardlist:
+            if not card.get('Body'):
+                continue
+            Body = card.get('Body')
+            for content in Body:
+                ItemData = content.get('ItemData', {})
+                if ItemData:
+                    AuthorName = ItemData.get('AuthorName')
+                    BookName = ItemData.get('BookName')
+                    BookId = ItemData.get('BookId')
+                    if AuthorName and BookName and BookId:
+                        booklist.append({
+                            'AuthorName': AuthorName,
+                            'BookName': BookName,
+                            'BookId': BookId,
+                        })
         return booklist
     except Exception as e:
         logger.error(f"搜索书籍异常: {e}")
