@@ -97,6 +97,11 @@
     如有侵权，请联系删除。
 
 
+<div align="center">
+  Made with ❤️ by <a href="https://github.com/qdjob">qdjob</a>
+  <br>
+  如果这个项目对你有帮助，请考虑给一个 ⭐️
+</div>
 
 
 
