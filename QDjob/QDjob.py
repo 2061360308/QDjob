@@ -11,7 +11,7 @@ from push import *
 from logger import LoggerManager
 from logger import DEFAULT_LOG_RETENTION
 
-__version__ = 'v1.3.1'
+__version__ = 'v1.3.2'
 
 # 配置常量
 CONFIG_FILE = 'config.json'
@@ -522,20 +522,16 @@ class QidianClient:
         :return: 处理后的结果
         """
         captcha_attempt = 0
-        original_data = data.copy()  # 保留原始数据用于重试
+        original_data = data.copy()
+        
+        # 记录上一次的解答结果，用于区分是"首次触发验证码"还是"提交验证码解答"
+        captcha_solution = None 
         
         while captcha_attempt <= max_captcha_attempts:
-            # 构造请求数据（每次重试需要重置）
             request_data = original_data.copy()
             
-            # 如果是验证码重试，添加验证码参数
-            if captcha_attempt > 0:
-                # request_data.update({
-                #     'sessionKey': str(captcha_data.get('SessionKey', '')),
-                #     'banId': str(captcha_data.get('BanId', '0')),
-                #     'captchaTicket': captcha_solution.get('ticket', ''),
-                #     'captchaRandStr': captcha_solution.get('randstr', '')
-                # })
+            # 只有在成功拿到了打码结果的情况下，才附加验证码参数去验证
+            if captcha_attempt > 0 and captcha_solution:
                 request_data = {
                     'taskId': original_data.get('taskId', ''),
                     'sessionKey': str(captcha_data.get('SessionKey', '')),
@@ -547,57 +543,49 @@ class QidianClient:
                     'seccode': '',
                 }
             
-            # 选择正确的请求方法
             result = self._make_sdk_request(url, data=request_data, method=method)
             
-            # 检查是否需要处理验证码
+            # 检查是否触发了验证码（无论是首次触发，还是上一次提交的解答错误被重新打回）
             if result.get('is_captcha'):
                 if not self.tokenid:
                     logger.info("未设置tokenid，跳过验证码处理")
                     return {
                         'status': 'captcha_failed', 
-                        'reason': '跳过验证码处理',
-                        'captcha_data': '未设置tokenid，跳过验证码处理'
+                        'msg': '跳过验证码处理',
+                        'captcha_data': result.get('captcha_data')
                     }
 
                 captcha_attempt += 1
                 captcha_data = result['captcha_data']
                 
+                logger.info(f"第{captcha_attempt}次尝试处理验证码...")
+                
                 # 尝试解决验证码
                 captcha_solution = self._solve_captcha(captcha_data)
-                if captcha_solution == False:
+                
+                if captcha_solution is False:
                     return {
                         'status': 'captcha', 
-                        'reason': '无法处理的验证码类型',
+                        'msg': '无法处理的验证码类型',
                         'captcha_data': captcha_data
                     }
 
-                if captcha_solution == None:
-                    return {
-                        'status': 'captcha_failed', 
-                        'reason': '验证码处理失败',
-                        'captcha_data': captcha_data
-                    }
-                
-                logger.info(f"第{captcha_attempt}次尝试解决验证码...")
-                continue  # 重试请求
+                if captcha_solution is None:
+                    logger.warning(f"验证码识别服务返回失败，准备重试 (已尝试 {captcha_attempt}/{max_captcha_attempts} 次)")
+                    # 识别失败时，不要带着错误参数去请求，下一个循环会用 original_data 重新触发一次验证码
+                    continue  
+
+                # 识别成功，进入下一次循环去提交 ticket
+                continue  
             
-            # 检查最终结果是否仍有验证码（表示验证码验证失败）
-            if result.get('Data', {}).get('RiskConf', {}).get('BanId'):
-                return {
-                    'status': 'captcha_failed',
-                    'reason': '验证码验证失败',
-                    'captcha_data': result['Data']['RiskConf']
-                }
-            
-            # 返回成功结果
+            # 如果没有进入 is_captcha 的分支，说明请求成功通过了风控
             return result
         
-        # 验证码尝试次数用尽
+        # 尝试次数用尽
         return {
             'status': 'captcha_failed',
-            'reason': f'验证码尝试次数超过{max_captcha_attempts}次',
-            'captcha_data': captcha_data
+            'msg': f'验证码处理或校验失败，已达到最大尝试次数 ({max_captcha_attempts}次)',
+            'captcha_data': locals().get('captcha_data', {})
         }
 
     def check_login(self) -> Optional[str]:
@@ -652,22 +640,18 @@ class QidianClient:
             result = self._make_qd_request(url, data=data, method='POST')
 
             if result.get('Result') == -91002:
-                logger.info("签到成功")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': '今日已签到'}
             
             if result.get('Result') == 0 and result.get('Data', {}).get('HasCheckIn', '') == 1:
-                logger.info("签到成功")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': '签到成功'}
                 
             if result.get('is_captcha'):
-                return {'status': 'captcha', 'captcha_data': result['captcha_data']}
+                return {'status': 'captcha', 'msg': '触发验证码', 'captcha_data': result['captcha_data']}
                 
-            logger.error(f"签到失败: {result}")
-            return {'status': 'failed'}
+            return {'status': 'failed', 'msg': f"签到失败: {result.get('Message', '未知原因')}"}
             
         except Exception as e:
-            logger.error(f"签到任务异常: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {'status': 'error', 'msg': f'执行异常: {str(e)}'}
 
     def get_adv_job(self) -> Dict[str, Any]:
         """获取激励任务列表"""
@@ -812,7 +796,7 @@ class QidianClient:
             # 如果所有任务已完成
             if task_list[-1]['IsFinished'] == 1:
                 logger.info("激励碎片任务已经完成")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': '任务已完成'}
                 
             # 执行未完成的任务
             for i, task in enumerate(task_list):
@@ -824,13 +808,13 @@ class QidianClient:
                         time.sleep(random.randint(1, 2))
                     elif result.get('status') == 'captcha':
                         logger.warning("无法处理的验证码类型")
-                        return result
+                        return {'status': result.get('status', 'captcha'), 'result': result, 'msg': '无法处理的验证码类型'}
                     elif result.get('status') == 'captcha_failed':
-                        logger.error(f"验证码处理失败: {result.get('reason')}")
-                        return result  # 返回详细失败原因
+                        logger.error(f"验证码处理失败: {result.get('msg')}")
+                        return {'status': result.get('status', 'captcha'), 'result': result, 'msg': result.get('msg')}  # 返回详细失败原因
                     else:
                         logger.error("执行激励任务失败")
-                        return {'status': 'failed'}
+                        return {'status': 'failed', 'msg': "执行激励任务失败"}
             
             # 验证任务是否全部完成
             check_result = self.get_adv_job()
@@ -839,14 +823,14 @@ class QidianClient:
             
             if all_finished:
                 logger.info("激励碎片任务完成")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': '任务已完成'}
                 
             logger.error("激励碎片任务未完成")
-            return {'status': 'failed', 'code': 10086}
+            return {'status': 'failed', 'code': 10086, 'msg': '任务未完成'}
             
         except Exception as e:
             logger.error(f"激励任务异常: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {'status': 'error', 'error': str(e), 'msg': '任务异常，请检查日志'}
 
     def exadvjob(self) -> dict:
         """执行额外章节卡任务"""
@@ -860,7 +844,7 @@ class QidianClient:
                 if task['Title'] == "完成3个广告任务得奖励":
                     if task['IsReceived'] == 1:
                         logger.info("额外章节卡任务已完成")
-                        return {'status': 'success'}
+                        return {'status': 'success', 'msg': '任务已完成'}
                         
                     for i in range(3):
                         task_result = self.do_adv_job(task['TaskId'])
@@ -869,10 +853,10 @@ class QidianClient:
                             time.sleep(random.randint(1, 2))
                         elif result.get('status') == 'captcha':
                             logger.warning("无法处理的验证码类型")
-                            return result
+                            return {'status': result.get('status', 'captcha'), 'result': result, 'msg': '无法处理的验证码类型'}
                         elif result.get('status') == 'captcha_failed':
-                            logger.error(f"验证码处理失败: {result.get('reason')}")
-                            return result  # 返回详细失败原因
+                            logger.error(f"验证码处理失败: {result.get('msg')}")
+                            return {'status': result.get('status', 'captcha'), 'result': result, 'msg': result.get('msg')}  # 返回详细失败原因
                         else:
                             logger.error("执行额外章节卡任务失败")
                             continue
@@ -885,17 +869,17 @@ class QidianClient:
                 if task['Title'] == "完成3个广告任务得奖励":
                     if task['IsReceived'] == 1:
                         logger.info("额外章节卡任务完成")
-                        return {'status': 'success'}
+                        return {'status': 'success', 'msg': '任务已完成'}
                         
                     logger.error("额外章节卡任务未完成")
-                    return {'status': 'failed', 'code': 10086}
+                    return {'status': 'failed', 'code': 10086, 'msg': '任务未完成'}
                     
             logger.error("未找到额外章节卡任务")
-            return {'status': 'error'}
+            return {'status': 'error', 'msg': '未找到该任务'}
             
         except Exception as e:
             logger.error(f"额外章节卡任务异常: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {'status': 'error', 'error': str(e), 'msg': '任务异常，请检查日志'}
         
     def do_game(self) -> dict:
         """执行游戏中心任务"""
@@ -939,23 +923,23 @@ class QidianClient:
                     remaining_time = int(task['Total'])-int(task['Process'])
                     if is_received == 1:
                         logger.info("游戏中心任务已完成")
-                        return {'status': 'success'}
+                        return {'status': 'success', 'msg': '任务已完成'}
                     elif (is_finished == 1 and is_received == 0) or (remaining_time <= 0):
                         logger.info("游戏中心任务已完成，奖励未领取")
                         logger.info("开始领取游戏中心任务奖励")
                         result = self.do_adv_job(taskid)
                         if result.get('status') == 'success':
                             logger.info("游戏任务领取成功")
-                            return {'status': 'success'}
+                            return {'status': 'success', 'msg': '任务已完成'}
                         elif result.get('status') == 'captcha':
                             logger.warning("无法处理的验证码类型")
-                            return result
+                            return {'status': result.get('status', 'captcha'), 'result': result, 'msg': '无法处理的验证码类型'}
                         elif result.get('status') == 'captcha_failed':
-                            logger.error(f"验证码处理失败: {result.get('reason')}")
-                            return result  # 返回详细失败原因
+                            logger.error(f"验证码处理失败: {result.get('msg')}")
+                            return {'status': result.get('status', 'captcha'), 'result': result, 'msg': result.get('msg')}  # 返回详细失败原因
                         else:
                             logger.error("游戏中心任务领取失败")
-                            return {'status': 'error', 'error': '未知异常'}
+                            return {'status': 'error', 'error': '未知异常', 'msg': '任务异常，请检查日志'}
                     else:
                         logger.info("游戏中心任务未完成，开始执行游戏中心任务")
                 if re.match(r"首次玩.*10分钟", task['Title']):
@@ -967,28 +951,28 @@ class QidianClient:
                     remaining_time = int(task['Total'])-int(task['Process'])
                     if is_received == 1:
                         logger.info("游戏中心任务已完成")
-                        return {'status': 'success'}
+                        return {'status': 'success', 'msg': '任务已完成'}
                     elif (is_finished == 1 and is_received == 0) or (remaining_time <= 0):
                         logger.info("游戏中心任务已完成，奖励未领取")
                         logger.info("开始领取游戏中心任务奖励")
                         result = self.do_adv_job(taskid)
                         if result.get('status') == 'success':
                             logger.info("游戏任务领取成功")
-                            return {'status': 'success'}
+                            return {'status': 'success', 'msg': '任务已完成'}
                         elif result.get('status') == 'captcha':
                             logger.warning("无法处理的验证码类型")
-                            return result
+                            return {'status': result.get('status', 'captcha'), 'result': result, 'msg': '无法处理的验证码类型'}
                         elif result.get('status') == 'captcha_failed':
-                            logger.error(f"验证码处理失败: {result.get('reason')}")
-                            return result  # 返回详细失败原因
+                            logger.error(f"验证码处理失败: {result.get('msg')}")
+                            return {'status': result.get('status', 'captcha'), 'result': result, 'msg': result.get('msg')}  # 返回详细失败原因
                         else:
                             logger.error("游戏中心任务领取失败")
-                            return {'status': 'error', 'error': '未知异常'}
+                            return {'status': 'error', 'error': '未知异常', 'msg': '任务异常，请检查日志'}
                     else:
                         logger.info("游戏中心任务未完成，开始执行游戏中心任务")
             if not game_url or not taskid: 
                 logger.error("游戏中心任务未找到")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '任务未找到'}
             if type_gamejob == 1:
                 if 'qdgame://' in game_url:
                     logger.info("游戏中心任务URL为跳转链接类型，转为https链接")
@@ -999,12 +983,12 @@ class QidianClient:
                     logger.info(f"游戏中心任务URL转换结果: {game_url}")
                     if not game_url:
                         logger.error("游戏中心任务URL转换失败")
-                        return {'status': 'failed', 'code': 10086}
+                        return {'status': 'failed', 'code': 10086, 'msg': '任务未找到'}
                     
                 match = re.search(r'partnerid=(\d+)', game_url)
                 if not match:
                     logger.error("游戏中心任务URL错误")
-                    return {'status': 'failed', 'code': 10086}
+                    return {'status': 'failed', 'code': 10086, 'msg': '游戏中心任务URL错误'}
                 game_id = 201796
                 partnerid = match.group(1)
             elif type_gamejob == 2:
@@ -1017,18 +1001,18 @@ class QidianClient:
                     logger.info(f"游戏中心任务URL转换结果: {game_url}")
                     if not game_url:
                         logger.error("游戏中心任务URL转换失败")
-                        return {'status': 'failed', 'code': 10086}
+                        return {'status': 'failed', 'code': 10086, 'msg': '游戏中心任务URL转换失败'}
 
                 match = re.search(r'/game/(\d+).*?partnerid=(\d+)', game_url)
                 if not match:
                     logger.error("游戏中心任务URL错误")
-                    return {'status': 'failed', 'code': 10086}
+                    return {'status': 'failed', 'code': 10086, 'msg': '游戏中心任务URL错误'}
                 game_id = match.group(1)
                 partnerid = match.group(2)
                 
             else:
                 logger.error(f"游戏中心任务类型异常: {type_gamejob}")
-                return {'status': 'error', 'error': '游戏中心任务类型异常'}
+                return {'status': 'error', 'error': '游戏中心任务类型异常', 'msg': '游戏中心任务类型异常'}
             game_url = f"https://qdgame.qidian.com/game/{game_id}?partnerid={partnerid}"
             logger.info(f"游戏中心任务URL: {game_url}")
             url_track = 'https://lygame.qidian.com/home/statistic/track'
@@ -1045,11 +1029,11 @@ class QidianClient:
             logger.debug(f"response_PHPSESSID: {response_PHPSESSID.text}")
             if not response_PHPSESSID.status_code == 200: 
                 logger.error("获取进程ID失败")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '获取进程ID失败'}
             res = response_PHPSESSID.json()
             if res.get('code') != 0 or not res.get('msg'):
                 logger.error("获取进程ID失败")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '获取进程ID失败'}
             PHESSID = response_PHPSESSID.cookies.get('PHESSID')
             logger.debug(f"PHESSID: {PHESSID}")
             cookies = self.config.cookies.copy()
@@ -1068,7 +1052,7 @@ class QidianClient:
                     res = response_heartbeat.json()
                     if not res.get('code') == 0 or not res.get('data'):
                         logger.error("心跳失败")
-                        return {'status': 'failed', 'code': 10086}
+                        return {'status': 'failed', 'code': 10086, 'msg': '心跳失败'}
                     next_time = int(res.get('data'))
                     logger.info(f"心跳成功，下一次心跳间隔: {next_time}")
                     run_time += next_time
@@ -1085,27 +1069,27 @@ class QidianClient:
                         is_received = task['IsReceived']
                         if is_received == 1:
                             logger.info("游戏中心任务已完成")
-                            return {'status': 'success'}
+                            return {'status': 'success', 'msg': '任务已完成'}
                         else:
                             logger.error("游戏中心任务未完成")
-                            return {'status': 'failed', 'code': 10086}
+                            return {'status': 'failed', 'code': 10086, 'msg': '任务未完成'}
                     if re.match(r"首次玩.*10分钟", task['Title']):
                         is_received = task['IsReceived']
                         if is_received == 1:
                             logger.info("游戏中心任务已完成")
-                            return {'status': 'success'}
+                            return {'status': 'success', 'msg': '任务已完成'}
                         else:
                             logger.error("游戏中心任务未完成")
-                            return {'status': 'failed', 'code': 10086}
+                            return {'status': 'failed', 'code': 10086, 'msg': '任务未完成'}
             elif task_result.get('status') == 'captcha':
-                logger.warning("遇到验证码")
-                return task_result
+                logger.warning("无法处理的验证码类型")
+                return {'status':task_result.get('status'),'result': task_result, 'msg': '无法处理的验证码类型'}
             else:
                 logger.error("执行游戏中心任务失败")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '执行游戏中心任务失败'}
         except Exception as e:
             logger.error(f"执行游戏中心任务异常: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {'status': 'error', 'error': str(e), 'msg': '任务异常，请检查日志'}
 
     def lottery(self) -> dict:
         """执行每日抽奖任务"""
@@ -1118,7 +1102,7 @@ class QidianClient:
             
             if lottery_chance == 0 and video_chance == 0:
                 logger.info("抽奖机会已用完")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': '任务已完成'}
                 
             logger.info(f"观看视频机会: {video_chance}次, 抽奖机会: {lottery_chance}次")
             
@@ -1144,14 +1128,14 @@ class QidianClient:
                     # 记录警告但不中断任务
                     logger.warning("抽奖任务中意外遇到验证码，可能是API变更")
                     # 可以选择尝试解决或直接失败
-                    return {'status': 'failed', 'reason': '意外验证码'}
+                    return {'status': 'failed', 'msg': '意外的验证码'}
                 
                 if video_result.get('Result') in (0, "0"):
                     logger.info(f"观看第{i+1}次视频成功")
                     time.sleep(random.randint(1, 2))
                 else:
                     logger.error("观看抽奖视频失败")
-                    return {'status': 'failed'}
+                    return {'status': 'failed', 'msg': '观看抽奖视频失败'}
             
             url_lottery = "https://h5.if.qidian.com/argus/api/v2/checkin/lottery"
             data_lottery = {
@@ -1169,14 +1153,14 @@ class QidianClient:
                 lottery_result = self._make_sdk_request(url_lottery, data=data_lottery, method='POST')
                 
                 if lottery_result.get('is_captcha'):
-                    return {'status': 'captcha', 'captcha_data': lottery_result['captcha_data']}
+                    return {'status': 'captcha', 'captcha_data': lottery_result['captcha_data'], 'msg': '意外的验证码'}
                 
                 if lottery_result.get('Result') == 0:
                     logger.info(f"第{i+1}次抽奖成功")
                     time.sleep(random.randint(1, 2))
                 else:
                     logger.error("抽奖失败")
-                    return {'status': 'failed'}
+                    return {'status': 'failed', 'msg': '抽奖失败'}
             
             check_result = self._make_sdk_request(url, method='GET')
             check_video = check_result['Data']['LotteryInfo']['HasVideoUrge']
@@ -1184,14 +1168,14 @@ class QidianClient:
             
             if check_video == 0 and check_lottery == 0:
                 logger.info("抽奖任务完成")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': '任务已完成'}
                 
             logger.error("抽奖任务未完成")
-            return {'status': 'failed', 'code': 10086}
+            return {'status': 'failed', 'code': 10086, 'msg': '任务未完成'}
             
         except Exception as e:
             logger.error(f"抽奖任务异常: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {'status': 'error', 'error': str(e), 'msg': '任务异常，请检查日志'}
         
     def weekly_exchange_card(self) -> dict:
         '''每周自动兑换章节卡'''
@@ -1200,10 +1184,10 @@ class QidianClient:
             result = self._make_sdk_request(url_exchange_page, method='GET')
             if result.get('Result') != 0 and result.get('Result') != "0":
                 logger.error("获取章节卡兑换页面失败")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '获取章节卡兑换页面失败'}
             if result.get('Data') == None:
                 logger.error("获取章节卡兑换页面数据为空")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '获取章节卡兑换页面数据为空'}
             remain_points = result["Data"].get("Balance")
             logger.info(f"当前余额: {remain_points}")
             goods_list = result["Data"].get("Goods", [])
@@ -1211,11 +1195,11 @@ class QidianClient:
             # 验证数据有效性
             if remain_points is None or remain_points <= 0:
                 logger.error(f"无效的余额: {remain_points}")
-                return {'status': 'stop', 'reason': '余额不足或无效'}
+                return {'status': 'stop', 'msg': '余额不足或无效'}
             
             if not goods_list:
                 logger.error("章节卡列表为空")
-                return {'status': 'stop', 'reason': '章节卡列表为空'}
+                return {'status': 'stop', 'msg': '章节卡列表为空'}
             
             # 选择可兑换的章节卡（价格不超过余额的最贵章节卡）
             selected_good = None
@@ -1232,7 +1216,7 @@ class QidianClient:
             # 检查是否找到可兑换章节卡
             if selected_good is None:
                 logger.info(f"没有可兑换的章节卡（当前余额: {remain_points}）")
-                return {'status': 'stop', 'reason': '无符合条件的章节卡'}
+                return {'status': 'stop', 'msg': f'余额不足({remain_points})'}
             
             goods_id = selected_good["GoodsId"]
             goods_score = selected_good["GoodsScore"]
@@ -1247,13 +1231,13 @@ class QidianClient:
             exchange_result = self._make_sdk_request(url_exchange, data=data, method='POST')
             if exchange_result.get('Result') == -220000:
                 logger.error("章节卡未到兑换时间")
-                return {'status': 'stop', 'reason': '章节卡未到兑换时间'}
+                return {'status': 'stop', 'msg': '未到兑换时间'}
             elif exchange_result.get('Result') != 0 and exchange_result.get('Result') != "0":
                 logger.error("章节卡兑换失败")
-                return {'status': 'failed', 'code': 10086}
+                return {'status': 'failed', 'code': 10086, 'msg': '兑换接口返回失败'}
             else:
                 logger.info(f"章节卡兑换成功，获得章节卡点数：{chapter_card_count}")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': f'消耗{goods_score}点兑换{chapter_card_count}点章节卡'}
 
 
         except Exception as e:
@@ -1271,7 +1255,7 @@ class QidianClient:
             config = self.config.readtime_task_config
             if not config:
                 logger.warning("未配置阅读时长上报任务参数")
-                return {'status': 'failed', 'reason': '缺少阅读时长配置'}
+                return {'status': 'failed', 'msg': '缺少阅读时长配置'}
 
             book_ids = config.get('book_ids', [])
             min_dur = config.get('min_duration', 5)
@@ -1280,7 +1264,7 @@ class QidianClient:
 
             if not book_ids:
                 logger.warning("未配置需要上报阅读时长的书籍ID")
-                return {'status': 'failed', 'reason': '书籍ID列表为空'}
+                return {'status': 'failed', 'msg': '书籍ID列表为空'}
 
             # 2. 随机选择一本书
             book_id = random.choice(book_ids)
@@ -1290,7 +1274,7 @@ class QidianClient:
             chapters = self.get_chapters(book_id)  # 返回列表，每个元素包含 chapterid, chapterName 等
             if not chapters:
                 logger.error(f"获取书籍[{book_id}]章节列表失败")
-                return {'status': 'failed', 'reason': '章节列表为空'}
+                return {'status': 'failed', 'msg': '章节列表为空'}
 
             total_chapters = len(chapters)
             logger.info(f"书籍[{book_id}]共有 {total_chapters} 章")
@@ -1309,7 +1293,7 @@ class QidianClient:
             # 5. 检查章节数量是否足够
             if total_chapters < N:
                 logger.error(f"书籍[{book_id}]章节数不足（需要 {N} 章，实际 {total_chapters} 章）")
-                return {'status': 'failed', 'reason': '章节数不足'}
+                return {'status': 'failed', 'msg': '章节数不足'}
 
             # 6. 随机选取连续 N 章
             start_idx = random.randint(0, total_chapters - N)
@@ -1323,6 +1307,7 @@ class QidianClient:
             # 从后向前生成记录
             chapter_Info = []
             current_end = final_end
+            full_read_time = 0
             # 逆序遍历章节（从最后一章到第一章）
             for idx, ch in enumerate(reversed(selected_chapters)):
                 read_ms = durations[N - 1 - idx] * 60 * 1000  # 对应时长的毫秒数
@@ -1345,25 +1330,88 @@ class QidianClient:
                 # 为前一个章节生成间隔（1~3秒）
                 gap_ms = random.randint(1000, 3000)
                 current_end = start_ts - gap_ms
+                # 记录上报总阅读时长
+                full_read_time += read_ms/1000/60
 
             # 由于是从后向前生成，实际记录顺序是反的（最后一章在前），但接口不要求顺序，所以无需反转
-            logger.info(f"生成 {len(chapter_Info)} 条阅读记录，准备上报")
+            logger.info(f"生成 {len(chapter_Info)} 条阅读记录，共计{full_read_time:.2f}分钟，准备上报")
 
             # 8. 调用 utils 中的上报函数
             success = self.do_readtime_report(chapter_Info=chapter_Info)
 
             if success:
                 logger.info("阅读时长上报成功")
-                return {'status': 'success'}
+                return {'status': 'success', 'msg': f'上报了{full_read_time:.2f}分钟阅读时长'}
             else:
                 logger.error("阅读时长上报失败")
-                return {'status': 'failed'}
+                return {'status': 'failed', 'msg': '阅读时长上报失败'}
 
         except Exception as e:
             logger.error(f"阅读时长上报任务异常: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {'status': 'error', 'error': str(e), 'msg': '任务异常，请查看日志'}
         
-        
+    def get_readcard_status(self):
+        '''获取当前章节卡信息'''
+        try:
+            url = "https://h5.if.qidian.com/argus/api/v1/readtime/scoremall/chaptercardwithbook"
+            result = self._make_sdk_request(url, method='GET')
+            
+            if result.get('Result') != 0 and result.get('Result') != "0":
+                logger.error("获取章节卡信息失败")
+                return {'status': 'failed', 'msg': '获取章节卡信息失败'}
+            
+            cards = result.get('Data', {}).get('ChapterCards', [])
+            
+            if not cards:
+                logger.info("当前账号没有章节卡")
+                return {
+                    'status': 'success',
+                    'total_value': 0,
+                    'total_count': 0,
+                    'earliest_expire': None,
+                    'cards': [],
+                    'msg': '当前账号没有章节卡'
+                }
+            
+            # 计算总价值和总数量
+            total_value = 0
+            total_count = 0
+            
+            for card in cards:
+                value = int(card.get('Value', 0))
+                amount = int(card.get('Amount', 1))
+                total_value += value * amount
+                total_count += amount
+            
+            # 找到最快过期的章节卡
+            earliest_card = min(cards, key=lambda x: int(x.get('ExpireAt', 0)))
+            expire_timestamp = int(earliest_card.get('ExpireAt', 0))
+            
+            from datetime import datetime
+            expire_date = datetime.fromtimestamp(expire_timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')
+            
+            earliest_expire = {
+                'value': int(earliest_card.get('Value', 0)),
+                'amount': int(earliest_card.get('Amount', 1)),
+                'expire_at': expire_timestamp,
+                'expire_date': expire_date
+            }
+            
+            logger.info(f"章节卡余额: {total_value} (共{total_count}张)")
+            logger.info(f"最快过期: {earliest_expire['value']}点 x {earliest_expire['amount']}张, 过期时间: {expire_date}")
+            
+            return {
+                'status': 'success',
+                'total_value': total_value,
+                'total_count': total_count,
+                'earliest_expire': earliest_expire,
+                'cards': cards,
+                'msg': f"\n章节卡余额: {total_value} (共{total_count}张)\n最快过期: {earliest_expire['value']}点 x {earliest_expire['amount']}张, 过期时间: {expire_date}"
+            }
+            
+        except Exception as e:
+            logger.error(f"查询章节卡异常: {e}")
+            return {'status': 'error', 'error': str(e), 'msg': '查询章节卡异常，请查看日志'}
     
     # 其他核心功能方法...
 
@@ -1389,42 +1437,40 @@ class TaskProcessor:
 
                 if isinstance(result, dict):
                     status = result.get('status')
+                    msg = result.get('msg', '未知原因') # 统一提取 msg
+                    
                     if status == 'success':
-                        logger.info(f"任务[{task_name}]执行完成: 成功")
+                        logger.info(f"任务[{task_name}]执行完成: {msg}")
                         self.task_results[task_name] = result
                         break
                     elif status == 'captcha_failed':
-                        # 明确区分验证码失败和其他错误
-                        reason = result.get('reason', '未知原因')
                         captcha_data = result.get('captcha_data', {})
-                        logger.error(f"任务[{task_name}]因验证码失败: {reason}")
+                        logger.error(f"任务[{task_name}]因验证码失败: {msg}")
                         logger.debug(f"验证码数据: {json.dumps(captcha_data, ensure_ascii=False)}")
-                        
-                        # 保存详细错误信息用于推送
                         self.task_results[task_name] = {
                             'status': 'captcha_failed',
-                            'reason': reason,
+                            'msg': msg,  # 统一存入 msg
                             'captcha_data': captcha_data
                         }
-                        # break
+                        break
                     elif status == 'captcha':
-                        logger.warning(f"任务[{task_name}]因验证码中断")
+                        logger.warning(f"任务[{task_name}]因验证码中断: {msg}")
                         self.task_results[task_name] = result
                         break
                     elif status == 'stop':
-                        logger.error(f"任务[{task_name}]执行失败: {result.get('reason', '强行停止')}")
+                        logger.error(f"任务[{task_name}]主动停止: {msg}")
                         self.task_results[task_name] = result
                         break
                     else:
                         if attempt < self.retry_attempts:
-                            logger.warning(f"任务[{task_name}]第{attempt}次执行失败，正在重试...")
+                            logger.warning(f"任务[{task_name}]第{attempt}次执行失败({msg})，正在重试...")
                             time.sleep(random.uniform(1, 2))
                         else:
                             logger.error(f"任务[{task_name}]执行失败，已达到最大重试次数")
                             self.task_results[task_name] = result
                 else:
                     logger.error(f"任务[{task_name}]返回格式错误")
-                    self.task_results[task_name] = {'status': 'failed', 'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')}
+                    self.task_results[task_name] = {'status': 'failed', 'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'), 'msg': f'任务[{task_name}]返回格式错误'}
                     break
 
             except Exception as e:
@@ -1446,7 +1492,7 @@ class TaskProcessor:
             ('激励碎片任务', self.client.advjob),
             ('章节卡任务', self.client.exadvjob),
             ('游戏中心任务', self.client.do_game),
-            ('每日抽奖任务', self.client.lottery)
+            ('每日抽奖任务', self.client.lottery),
             # ('其他任务', self.other_task_func),
             # 添加其他任务...
         ]
@@ -1460,6 +1506,9 @@ class TaskProcessor:
             tasks.append(('每周自动兑换章节卡', self.client.weekly_exchange_card))
         else:
             logger.info("非周日，不执行每周自动兑换章节卡任务")
+
+        # 将章节卡信息推送任务放到最后一个
+        tasks.append(('章节卡信息推送', self.client.get_readcard_status))
         
         for task_name, task_func in tasks:
             self.run_task(task_name, task_func)
@@ -1563,52 +1612,71 @@ class MainApp:
             return
             
         # 构造消息内容
-        msg = f"用户[{user.username}]任务完成情况:\n"
+        msg_text = f"👤 用户[{user.username}]任务报告:\n" + "-"*20 + "\n"
         success_count = 0
         total_count = len(results)
         has_captcha = False
         captcha_reason = ""
 
         for task_name, result in results.items():
+            emoji = '❓'
+            detail_msg = ""
+            
             if isinstance(result, dict):
                 status = result.get('status')
+                # 提取我们在任务函数里加的 msg 字段
+                detail_msg = result.get('msg', '') 
+                
                 if status == 'success':
                     emoji = '✅'
+                    success_count += 1
                 elif status == 'captcha':
                     emoji = '⚠️'
                     has_captcha = True
+                    detail_msg = detail_msg or '触发验证码中断'
                 elif status == 'captcha_failed':
                     emoji = '❌'
                     has_captcha = True
-                    captcha_reason = result.get('reason', '未知原因')
+                    captcha_reason = result.get('msg', '打码失败')
+                    detail_msg = detail_msg or captcha_reason
+                elif status == 'stop':
+                    emoji = '⏸️'
+                    detail_msg = detail_msg or result.get('msg', '主动停止')
                 else:
                     emoji = '❌'
-                msg += f"{task_name}: {emoji}\n"
-                if status == 'success':
-                    success_count += 1
+                    detail_msg = detail_msg or result.get('error', '执行失败')
             else:
-                msg += f"{task_name}: ❌\n"
+                emoji = '❌'
+                detail_msg = "返回格式异常"
+
+            # 拼接单行结果，例如：✅ 签到任务: 今日已签到过
+            # 如果没有 detail_msg，就只显示任务名
+            if detail_msg:
+                msg_text += f"{emoji} {task_name}: {detail_msg}\n"
+            else:
+                msg_text += f"{emoji} {task_name}\n"
 
         if has_captcha:
-            msg += "\n⚠️ 任务因遇到验证码被中断，后续任务未执行\n"
+            msg_text += "\n" + "-"*20 + "\n"
+            msg_text += "⚠️ 警告：账号触发风控\n"
             if captcha_reason:
-                msg += f"   错误原因: {captcha_reason}\n"
-            msg += "   手动执行一次任务后可解除风控"
+                msg_text += f"原因: {captcha_reason}\n"
+            msg_text += "建议：手动登录APP或抓包更新参数"
 
-        title = f"任务完成报告 - {success_count}/{total_count}"
+        title = f"QDJob 运行报告 ({success_count}/{total_count})"
         
         # 发送所有推送服务
         for push_service in user.push_services:
             service_name = push_service.__class__.__name__
             try:
-                result = push_service.send(title, msg)
-                if result.get('success'):
+                push_result = push_service.send(title, msg_text) # 变量名改成了 msg_text 避免与内层变量冲突
+                if push_result.get('success'):
                     logger.info(f"[{service_name}] 推送成功")
                 else:
-                    logger.info(f"[{service_name}] 推送失败")
-                    logger.debug(f"[{service_name}] 原始返回: {result.get('raw')}")
+                    logger.info(f"[{service_name}] 推送失败: {push_result.get('raw')}")
             except Exception as e:
                 logger.error(f"[{service_name}] 推送异常: {str(e)}")
+
 
 if __name__ == "__main__":
     app = MainApp()

@@ -12,7 +12,7 @@ import sys, random
 import os
 import platform
 
-__version__ = 'v1.3.1'
+__version__ = 'v1.3.2'
 
 system = platform.system()
 if system == "Windows":
@@ -24,11 +24,14 @@ else:
 
 
 def resource_path(relative_path):
-    """ 获取资源的绝对路径。适用于开发环境和PyInstaller打包后 """
-    try:
-        # PyInstaller创建的临时文件夹
+    """ 获取资源的绝对路径。兼容开发环境、Nuitka 和 PyInstaller """
+    if "__compiled__" in globals():
+        # Nuitka 编译环境
+        base_path = os.path.dirname(__file__)
+    elif hasattr(sys, '_MEIPASS'):
+        # PyInstaller 编译环境
         base_path = sys._MEIPASS
-    except AttributeError:
+    else:
         # 开发环境
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
@@ -93,120 +96,71 @@ class ConfigEditor:
 
     def get_resolution_settings(self):
         """
-        根据屏幕分辨率配置UI，自动调整窗口大小和字体大小
-        按照5个档位（480p, 720p, 1080p, 2k, 4k）设置
+        根据屏幕真实物理宽度配置UI，自动调整窗口大小和字体大小
         """
-        # 获取屏幕宽度和高度
         screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
         
-        # 计算对角线像素数（综合考虑横向和纵向分辨率）
-        diagonal_pixels = (screen_width ** 2 + screen_height ** 2) ** 0.5
-        
-        # 确定分辨率档位
-        if diagonal_pixels <= 900:  # ~480p
-            resolution_level = "480p"
-        elif diagonal_pixels <= 1500:  # ~720p
+        # 确定分辨率档位 (直接基于宽度判断更可靠)
+        if screen_width <= 1280:      # 720p 及以下，或高缩放比例下的屏幕
             resolution_level = "720p"
-        elif diagonal_pixels <= 2200:  # ~1080p
+        elif screen_width <= 1920:    # 1080p 级别
             resolution_level = "1080p"
-        elif diagonal_pixels <= 3000:  # ~2k
+        elif screen_width <= 2560:    # 2K 级别
             resolution_level = "2k"
-        else:  # 4k及以上
+        else:                         # 4K 及带鱼屏等更高分辨率
             resolution_level = "4k"
         
-        # 根据分辨率档位设置UI参数（以2k屏幕配置为基准）
-        if resolution_level == "480p":
-            main_width = 380
-            main_height = 360
-            userpage_width = 380
-            userpage_height = 350
-            loginpage_width = 380
-            loginpage_height = 300
-            pushpage_width = 250
-            pushpage_height = 260
-            readtimepage_width = 380  # Added
-            readtimepage_height = 400 # Added
-            font_size_main = 7
-            font_size_small = 6
-        elif resolution_level == "720p":
-            main_width = 580
-            main_height = 550
-            userpage_width = 580
-            userpage_height = 540
-            loginpage_width = 580
-            loginpage_height = 470
-            pushpage_width = 320
-            pushpage_height = 370
-            readtimepage_width = 580  # Added
-            readtimepage_height = 550 # Added
-            font_size_main = 8
-            font_size_small = 7
-        elif resolution_level == "1080p":
-            main_width = 800
-            main_height = 770
-            userpage_width = 800
-            userpage_height = 750
-            loginpage_width = 800
-            loginpage_height = 660
-            pushpage_width = 500
-            pushpage_height = 550
-            readtimepage_width = 800  # Added
-            readtimepage_height = 700 # Added
-            font_size_main = 11
+        # 根据分辨率档位设置UI参数
+        # 注意：开启DPI感知后，这里的像素值是物理像素。
+        # 因此高分屏下的尺寸和字体需要适当放大，以保证肉眼观看大小合适。
+        if resolution_level == "720p":
+            main_width, main_height = 800, 650
+            userpage_width, userpage_height = 800, 650
+            loginpage_width, loginpage_height = 800, 650
+            pushpage_width, pushpage_height = 450, 500
+            readtimepage_width, readtimepage_height = 800, 650
+            font_size_main = 10
             font_size_small = 9
-        elif resolution_level == "2k":
-            main_width = 1000
-            main_height = 900
-            userpage_width = 1000
-            userpage_height = 900
-            loginpage_width = 1000
-            loginpage_height = 800
-            pushpage_width = 550
-            pushpage_height = 630
-            readtimepage_width = 1000 # Added
-            readtimepage_height = 800 # Added
+        elif resolution_level == "1080p":
+            main_width, main_height = 1100, 870
+            userpage_width, userpage_height = 1100, 870
+            loginpage_width, loginpage_height = 900, 730
+            pushpage_width, pushpage_height = 550, 630
+            readtimepage_width, readtimepage_height = 1100, 850
             font_size_main = 12
             font_size_small = 10
-        else:  # 4k
-            main_width = 1200
-            main_height = 1000
-            userpage_width = 1200
-            userpage_height = 1030
-            loginpage_width = 1200
-            loginpage_height = 900
-            pushpage_width = 600
-            pushpage_height = 700
-            readtimepage_width = 1200 # Added
-            readtimepage_height = 900 # Added
+        elif resolution_level == "2k":
+            main_width, main_height = 1300, 1100
+            userpage_width, userpage_height = 1300, 1100
+            loginpage_width, loginpage_height = 1100, 850
+            pushpage_width, pushpage_height = 700, 750
+            readtimepage_width, readtimepage_height = 1300, 1000
             font_size_main = 14
             font_size_small = 12
+        else:  # 4k
+            main_width, main_height = 1800, 1400
+            userpage_width, userpage_height = 1800, 1400
+            loginpage_width, loginpage_height = 1400, 1100
+            pushpage_width, pushpage_height = 900, 1000
+            readtimepage_width, readtimepage_height = 1800, 1400
+            font_size_main = 18   # 4K屏幕下字体必须足够大
+            font_size_small = 14
         
-        # 根据系统设置字体格式
-        if sys_run == 1:  # Windows系统
+        # 字体设定保持不变
+        if sys_run == 1 or sys_run == 2:  # Win/Linux
             font_family = "微软雅黑"
-        elif sys_run == 2:  # Linux系统
-            font_family = "微软雅黑"
-        else:  # macOS系统
+        else:  # macOS
             font_family = "Helvetica"
 
-        resolution_set = {
-            "main_width": main_width,
-            "main_height": main_height,
-            "userpage_width": userpage_width,
-            "userpage_height": userpage_height,
-            "loginpage_width": loginpage_width,
-            "loginpage_height": loginpage_height,
-            "pushpage_width": pushpage_width,
-            "pushpage_height": pushpage_height,
-            "readtimepage_width": readtimepage_width, # Added
-            "readtimepage_height": readtimepage_height, # Added
+        return {
+            "main_width": main_width, "main_height": main_height,
+            "userpage_width": userpage_width, "userpage_height": userpage_height,
+            "loginpage_width": loginpage_width, "loginpage_height": loginpage_height,
+            "pushpage_width": pushpage_width, "pushpage_height": pushpage_height,
+            "readtimepage_width": readtimepage_width, "readtimepage_height": readtimepage_height,
             "font_family": font_family,
-            "font_size_main": font_size_main,
-            "font_size_small": font_size_small
+            "font_size_main": font_size_main, "font_size_small": font_size_small
         }
-        
-        return resolution_set
 
     def init_styles(self):
         """初始化主题样式"""
@@ -1155,7 +1109,8 @@ class ConfigEditor:
                     "激励碎片任务": True,
                     "章节卡任务": True,
                     "游戏中心任务": True,
-                    "每日抽奖任务": True
+                    "每日抽奖任务": True,
+                    "章节卡信息推送": True,
                 },
                 "push_services": []
             }
@@ -2041,7 +1996,7 @@ class ConfigEditor:
         task_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=10)
         
         task_vars = {}
-        tasks = ["签到任务", "激励碎片任务", "章节卡任务", "游戏中心任务", "每日抽奖任务", "每周自动兑换章节卡"]
+        tasks = ["签到任务", "激励碎片任务", "章节卡任务", "游戏中心任务", "每日抽奖任务", "每周自动兑换章节卡", "章节卡信息推送"]
         for i, task in enumerate(tasks):
             var = tk.BooleanVar(value=True)
             ttk.Checkbutton(task_frame, text=task, variable=var).grid(
@@ -2786,17 +2741,17 @@ class ConfigEditor:
         task_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=10)
 
         task_vars = {}
-        tasks = ["签到任务", "激励碎片任务", "章节卡任务", "游戏中心任务", "每日抽奖任务", "每周自动兑换章节卡"]
+        tasks = ["签到任务", "激励碎片任务", "章节卡任务", "游戏中心任务", "每日抽奖任务", "每周自动兑换章节卡", "章节卡信息推送"]
         for i, task in enumerate(tasks):
             var = tk.BooleanVar(value=user["tasks"].get(task, True))
             ttk.Checkbutton(task_frame, text=task, variable=var).grid(
-                row=i//3, column=i%3, sticky="w", padx=10, pady=5)
+                row=i//4, column=i%4, sticky="w", padx=10, pady=5)
             task_vars[task] = var
 
         # 在 edit_user 中，获取已有阅读时长配置
         readtime_config = user.get("readtime_task_config", {})
         if not readtime_config:
-            readtime_config = {"book_ids": [], "min_duration": 5, "max_duration": 10, "total_duration": 60}
+            readtime_config = {"book_ids": [], "min_duration": 5, "max_duration": 10, "total_duration": 120}
 
         # 阅读时长上报任务（第3行第0列）
         readtime_var = tk.BooleanVar(value=user["tasks"].get("阅读时长上报", True))
@@ -3647,8 +3602,8 @@ class ConfigEditor:
             })
             dialog.destroy()
 
-        ttk.Button(bottom_frame, text="保存", style="Accent.TButton", command=save_config).pack(side="right", padx=5)
         ttk.Button(bottom_frame, text="取消", style="Accent.TButton", command=dialog.destroy).pack(side="right", padx=5)
+        ttk.Button(bottom_frame, text="保存", style="Accent.TButton", command=save_config).pack(side="right", padx=5)
 
         dialog.wait_window()  # 等待对话框关闭
 
@@ -3906,6 +3861,23 @@ class ConfigEditor:
             messagebox.showerror("执行失败", error_message)
 
 if __name__ == "__main__":
+    import platform
+    if platform.system() == "Windows":
+        import ctypes
+        try:
+            # 告诉 Windows 这个程序是 DPI 感知的
+            ctypes.windll.shcore.SetProcessDpiAwareness(1) # 1 代表 PROCESS_SYSTEM_DPI_AWARE
+        except Exception:
+            try:
+                # 兼容旧版本 Windows
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
     root = tk.Tk()
+    
+    # 增加这一行，让 Tkinter 根据当前的 DPI 缩放比例自适应大小
+    # root.tk.call('tk', 'scaling', root.winfo_fpixels('1i')/72.0) 
+    
     app = ConfigEditor(root)
     root.mainloop()
